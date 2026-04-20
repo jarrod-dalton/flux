@@ -24,8 +24,23 @@ if (!is.na(script_path) && nzchar(script_path)) {
 
 reports_dir <- file.path(root, "tests_ecosystem", "reports")
 if (!dir.exists(reports_dir)) dir.create(reports_dir, recursive = TRUE, showWarnings = FALSE)
-stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+now_stamp <- Sys.time()
+stamp <- sprintf("%s_%03d", format(now_stamp, "%Y%m%d_%H%M%S"), as.integer((as.numeric(now_stamp) %% 1) * 1000))
 report_path <- file.path(reports_dir, paste0("tier2_", stamp, ".txt"))
+disable_report <- identical(tolower(Sys.getenv("FLUX_DISABLE_REPORT_FILE", unset = "0")), "1")
+if (disable_report) report_path <- NULL
+max_reports <- suppressWarnings(as.integer(Sys.getenv("FLUX_MAX_REPORTS", unset = "10")))
+if (is.na(max_reports) || max_reports < 1L) max_reports <- 10L
+
+prune_reports <- function(prefix) {
+  patt <- paste0("^", prefix, "_[0-9]{8}_[0-9]{6}(_[0-9]{3})?\\.txt$")
+  files <- list.files(reports_dir, pattern = patt, full.names = TRUE)
+  if (length(files) <= max_reports) return(invisible(NULL))
+  info <- file.info(files)
+  ord <- order(info$mtime, decreasing = TRUE, na.last = TRUE)
+  old <- files[ord[(max_reports + 1L):length(files)]]
+  unlink(old)
+}
 
 results <- vector("list", length(repos))
 names(results) <- repos
@@ -51,14 +66,16 @@ extract_counts <- function(lines) {
   list(fail = as.integer(m[2]), warn = as.integer(m[3]), skip = as.integer(m[4]), pass = as.integer(m[5]))
 }
 
-sink_con <- file(report_path, open = "wt")
-sink(sink_con, type = "output", split = TRUE)
-sink(sink_con, type = "message")
-on.exit({
-  sink(type = "message")
-  sink(type = "output")
-  close(sink_con)
-}, add = TRUE)
+if (!is.null(report_path)) {
+  sink_con <- file(report_path, open = "wt")
+  sink(sink_con, type = "output", split = TRUE)
+  sink(sink_con, type = "message")
+  on.exit({
+    sink(type = "message")
+    sink(type = "output")
+    close(sink_con)
+  }, add = TRUE)
+}
 
 for (repo in repos) {
   p <- file.path(root, repo)
@@ -118,5 +135,9 @@ for (repo in repos) {
 
 dt <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
 message(sprintf("\n[Tier 2] %s (%.2fs)", status, dt))
-message("[Tier 2] Report: ", report_path)
+if (!is.null(report_path)) {
+  prune_reports("tier2")
+  message("[Tier 2] Report: ", report_path)
+  message(sprintf("[Tier 2] Report retention: keeping latest %d tier2 reports", max_reports))
+}
 if (identical(status, "FAIL")) quit(save = "no", status = 1)

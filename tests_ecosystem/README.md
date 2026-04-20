@@ -45,3 +45,6 @@ Notes:
 - These scripts assume local package directories are present under this parent folder.
 - Tier 3 intentionally skips if `fluxASCVD` internals are unavailable.
 - Each run writes logs/reports under `tests_ecosystem/reports/`.
+- Any `make ecosystem-*` invocation produces one consolidated `ecosystem_*.txt` report file.
+- Tier 1 and Tier 3 print step-by-step checks with explicit pass/fail markers.
+- Report retention is automatic (default keeps latest 10 per report type). Override with `FLUX_MAX_REPORTS`.
