@@ -1,0 +1,5 @@
+.DS_Store
+
+# Generated ecosystem test artifacts
+tests_ecosystem/reports/*
+!tests_ecosystem/reports/.gitkeep
