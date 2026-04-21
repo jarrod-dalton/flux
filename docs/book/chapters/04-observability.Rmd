@@ -1,0 +1,11 @@
+# Observability is not missingness
+
+> **Purpose:** Separate latent state from measured observations.
+
+## Learning objectives
+
+- (Add objectives)
+
+## Outline
+
+- (Add section headings)

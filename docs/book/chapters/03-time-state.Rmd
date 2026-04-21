@@ -1,0 +1,11 @@
+# Time and state are first-class
+
+> **Purpose:** Define time, state, and history as modeling primitives.
+
+## Learning objectives
+
+- (Add objectives)
+
+## Outline
+
+- (Add section headings)

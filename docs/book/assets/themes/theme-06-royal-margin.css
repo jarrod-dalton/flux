@@ -1,0 +1,58 @@
+/* Theme 06: Royal Margin (subtle purple + strong hierarchy) */
+@import url("https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@350;450;600;700&family=Source+Serif+4:wght@350;450;600&display=swap");
+
+:root {
+  --body: #0f172a;
+  --muted: #334155;
+  --accent: #6d28d9; /* purple */
+  --accent2: #1d4ed8; /* blue */
+  --bg: #ffffff;
+  --code-bg: #f5f3ff;
+  --code-border: rgba(109,40,217,0.20);
+}
+
+
+/* Common selectors for bookdown::gitbook */
+.book .book-body .page-wrapper .page-inner { max-width: 900px; }
+.book .book-body .page-wrapper .page-inner section.normal { padding-top: 18px; }
+h1, h2, h3, h4 { letter-spacing: 0.2px; }
+pre, code { font-variant-ligatures: none; }
+pre { overflow-x: auto; }
+
+
+body {
+  color: var(--body);
+  background: var(--bg);
+  font-family: "Source Serif 4", ui-serif, Georgia, serif;
+}
+
+h1, h2, h3, h4 {
+  font-family: "Source Sans 3", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+h2 {
+  color: var(--accent);
+  border-bottom: 1px solid rgba(109,40,217,0.25);
+  padding-bottom: 6px;
+}
+
+h3 { color: var(--accent2); }
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+code {
+  background: rgba(109,40,217,0.08);
+  padding: 0.12em 0.30em;
+  border-radius: 6px;
+}
+
+blockquote {
+  border-left: 4px solid rgba(109,40,217,0.35);
+  padding-left: 14px;
+  color: var(--muted);
+}

@@ -1,0 +1,103 @@
+# Style sandbox (do not cite)
+
+This chapter exists purely to experiment with **CSS, layout, figures, tables, math, and citations**.
+It should never be cited or linked from the final book.
+
+## Section header (H2)
+
+This is a paragraph of body text. The goal here is to see:
+
+- line height
+- paragraph spacing
+- bullet styling
+- inline emphasis (*italics*, **bold**, `code`)
+- links: see [bookdown](https://bookdown.org/)
+
+### Subsection (H3)
+
+More body text. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed non risus.
+Suspendisse lectus tortor, dignissim sit amet, adipiscing nec, ultricies sed, dolor.
+
+#### Sub-subsection (H4)
+
+Block quotes are important for tone-setting.
+
+> This is a block quote.
+>
+> It should be visually distinct but not theatrical.
+> Think “quiet authority,” not manifesto.
+
+## Figures
+
+```{r test-figure, fig.cap="A deliberately boring plot for CSS testing.", fig.width=5, fig.height=3}
+plot(
+  x = 1:10,
+  y = (1:10)^2,
+  type = "b",
+  pch = 19,
+  main = "Quadratic growth",
+  xlab = "x",
+  ylab = "x^2"
+)
+```
+
+## Tables
+
+```{r test-table}
+knitr::kable(
+  data.frame(
+    Concept = c("Time", "State", "Observability", "Validation"),
+    Common_Mistake = c(
+      "Treating time as an index",
+      "Equating state with measurement",
+      "Confusing missingness with latent state",
+      "Validating predictions without a target"
+    ),
+    What_We_Do_Instead = c(
+      "Make time first-class",
+      "Model latent state explicitly",
+      "Separate state from observation",
+      "Define validation contracts"
+    )
+  ),
+  caption = "Conceptual contrasts used to test table styling."
+)
+```
+
+## Math
+
+Inline math should not jump the line height: \( P(Y \mid X) \).
+
+$$
+\Pr(T \le t \mid \text{alive at } t_0) = 1 - \exp\left( -\int_{t_0}^{t} \lambda(u) \, du \right)
+$$
+
+## Code blocks
+
+```r
+# What does this look like?
+simulate_patient <- function(state, time) {
+  if (!state$alive) return(state)
+  state$time <- time
+  state
+}
+```
+
+## Citations
+
+Causal reasoning has made explicit what was previously implicit in many statistical workflows [@Pearl2009].
+Hierarchical modeling plays a similar clarifying role for multilevel structure [@GelmanHill2006].
+
+## Callouts / asides
+
+::: {.note}
+This is a *note* block. It should be visually distinct but not loud.
+:::
+
+::: {.warning}
+This is a *warning* block. Use sparingly in the real book.
+:::
+
+## Final paragraph
+
+End-of-section spacing matters too. This paragraph exists solely to see how the chapter ends visually.

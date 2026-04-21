@@ -1,0 +1,239 @@
+/* =========================================================
+   Theme 04: Copper & Ash (editorial, refined)
+   ---------------------------------------------------------
+   Serif body, sans headings, copper accents.
+   Optimized for long-form reading on laptops.
+   Includes TOC sidebar tuning (wider, tighter, smaller text).
+   ========================================================= */
+
+@import url("https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&family=Crimson+Pro:wght@400;500;600&display=swap");
+
+/* ---------- Color system ---------- */
+:root {
+  --body: #111827;        /* near-black */
+  --muted: #374151;       /* ash */
+  --accent: #b45309;      /* copper */
+  --accent-soft: rgba(180,83,9,0.35);
+  --bg: #ffffff;
+
+  --code-bg: #fdf7f2;     /* warm paper */
+  --code-border: rgba(180,83,9,0.25);
+}
+
+/* =========================================================
+   TOC / Sidebar (gitbook)
+   ========================================================= */
+
+/* Wider sidebar */
+.book .book-summary {
+  width: 320px;            /* try 300–360 if you want */
+}
+
+/* Ensure the content area respects the wider sidebar */
+.book.with-summary .book-body {
+  left: 320px;
+}
+
+/* Slightly smaller, tighter TOC entries */
+.book .book-summary .summary li a,
+.book .book-summary .summary li span {
+  font-size: 15px;         /* smaller than body */
+  line-height: 1.1;        /* tighter */
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+/* Reduce extra vertical space between items */
+.book .book-summary .summary li {
+  margin: 0;
+}
+
+/* Subsection indentation and spacing: tighter */
+.book .book-summary .summary li ul {
+  margin-top: 2px;
+  margin-bottom: 2px;
+}
+
+/* Active link styling */
+.book .book-summary .summary li.active > a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Hover */
+.book .book-summary .summary li a:hover {
+  color: var(--accent);
+}
+
+/* =========================================================
+   Layout / reading width
+   ========================================================= */
+
+.book .book-body .page-wrapper .page-inner {
+  max-width: 1100px;        /* wider = less “zoomed out” feel */
+}
+
+.book .book-body .page-wrapper .page-inner section.normal {
+  font-size: 1.1em;         /* SCALE BODY TEXT INSIDE CHAPTERS */
+  padding-top: 18px;
+}
+
+/* ---------- Base body text ---------- */
+body {
+  background: var(--bg);
+  color: var(--body);
+  font-family: "Crimson Pro", ui-serif, Georgia, serif;
+  font-size: 18px;          /* base size */
+  line-height: 1.6;
+}
+
+/* Paragraphs & lists */
+p {
+  font-size: 1.05em;        /* makes paragraphs feel book-sized */
+  margin: 0.9em 0;
+}
+
+li {
+  font-size: 1.05em;
+}
+
+ul, ol {
+  margin: 0.8em 0 0.8em 1.4em;
+}
+
+/* ---------- Links ---------- */
+a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(180,83,9,0.35);
+}
+
+a:hover {
+  border-bottom-color: rgba(180,83,9,0.70);
+}
+
+/* ---------- Headings ---------- */
+h1, h2, h3, h4 {
+  font-family: "Work Sans", ui-sans-serif, system-ui, -apple-system,
+               Segoe UI, Roboto, Arial, sans-serif;
+  letter-spacing: 0.2px;
+}
+
+h1 {
+  font-weight: 700;
+  margin-top: 1.6em;
+}
+
+h2 {
+  color: var(--accent);
+  font-weight: 600;
+  border-left: 6px solid var(--accent-soft);
+  padding-left: 12px;
+  margin-top: 2.2em;
+}
+
+h3 {
+  color: var(--body);
+  font-weight: 600;
+  margin-top: 1.6em;
+}
+
+h4 {
+  color: var(--muted);
+  font-weight: 600;
+  margin-top: 1.2em;
+}
+
+/* ---------- Blockquotes ---------- */
+blockquote {
+  border-left: 4px solid var(--accent-soft);
+  padding-left: 14px;
+  margin: 1.2em 0;
+  color: var(--muted);
+  font-style: normal;
+}
+
+/* ---------- Figures & captions ---------- */
+.figure p.caption,
+figcaption {
+  font-style: italic;
+  color: var(--muted);
+  margin-top: 0.6em;
+}
+
+.figure p.caption strong,
+figcaption strong {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--body);
+}
+
+/* ---------- Tables ---------- */
+table {
+  border-collapse: collapse;
+}
+
+thead th {
+  font-weight: 600;
+  border-bottom: 2px solid var(--accent-soft);
+  padding: 6px 8px;
+}
+
+tbody td {
+  padding: 6px 8px;
+}
+
+tbody tr:nth-child(even) {
+  background-color: rgba(180,83,9,0.04);
+}
+
+table caption {
+  caption-side: bottom;
+  font-style: italic;
+  color: var(--muted);
+  margin-top: 0.6em;
+}
+
+table caption strong {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--body);
+}
+
+/* ---------- Code blocks ---------- */
+pre code span.fu { font-weight: 700 !important; }
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 1.2em 0;
+  overflow-x: auto;
+}
+
+pre code {
+  background: transparent;
+  color: var(--body);
+  font-size: 0.95em;
+  font-variant-ligatures: none;
+}
+
+/* Inline code */
+code {
+  background: rgba(180,83,9,0.10);
+  padding: 0.15em 0.35em;
+  border-radius: 6px;
+  font-variant-ligatures: none;
+}
+
+/* ---------- Callout blocks ---------- */
+.note, .warning {
+  border-left: 4px solid var(--accent-soft);
+  padding-left: 14px;
+  margin: 1.2em 0;
+}
+
+.warning {
+  border-left-color: rgba(180,83,9,0.55);
+}

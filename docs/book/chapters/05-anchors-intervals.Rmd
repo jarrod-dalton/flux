@@ -1,0 +1,11 @@
+# Anchors and intervals
+
+> **Purpose:** Anchors, intervals, eligibility, prediction targets.
+
+## Learning objectives
+
+- (Add objectives)
+
+## Outline
+
+- (Add section headings)

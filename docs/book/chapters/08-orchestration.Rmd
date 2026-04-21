@@ -1,0 +1,11 @@
+# Orchestration across models
+
+> **Purpose:** Handoffs and contracts across model components.
+
+## Learning objectives
+
+- (Add objectives)
+
+## Outline
+
+- (Add section headings)

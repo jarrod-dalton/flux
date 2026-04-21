@@ -1,0 +1,65 @@
+/* Theme 03: Sea Glass (cool, airy) */
+@import url("https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@350;450;600;700&family=Spectral:wght@350;450;600&display=swap");
+
+:root {
+  --body: #0f172a;
+  --muted: #334155;
+  --accent: #0891b2; /* cyan */
+  --accent2: #0f766e; /* teal */
+  --bg: #fbfdff;
+  --code-bg: #ecfeff;
+  --code-border: rgba(8,145,178,0.20);
+}
+
+
+/* Common selectors for bookdown::gitbook */
+.book .book-body .page-wrapper .page-inner { max-width: 900px; }
+.book .book-body .page-wrapper .page-inner section.normal { padding-top: 18px; }
+h1, h2, h3, h4 { letter-spacing: 0.2px; }
+pre, code { font-variant-ligatures: none; }
+pre { overflow-x: auto; }
+
+
+body {
+  color: var(--body);
+  background: var(--bg);
+  font-family: "Spectral", ui-serif, Georgia, serif;
+}
+
+h1, h2, h3, h4 {
+  font-family: "Nunito Sans", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+h2 {
+  color: var(--accent);
+  border-bottom: 2px solid rgba(8,145,178,0.18);
+  padding-bottom: 6px;
+}
+
+h3 { color: var(--accent2); }
+
+a {
+  color: var(--accent2);
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(15,118,110,0.45);
+}
+a:hover { border-bottom-style: solid; }
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+code {
+  background: rgba(8,145,178,0.10);
+  padding: 0.12em 0.28em;
+  border-radius: 6px;
+}
+
+blockquote {
+  border-left: 4px solid rgba(15,118,110,0.35);
+  padding-left: 14px;
+  color: var(--muted);
+}

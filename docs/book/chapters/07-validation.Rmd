@@ -1,0 +1,11 @@
+# Validation as a contract
+
+> **Purpose:** Validation semantics, masks, and target definitions.
+
+## Learning objectives
+
+- (Add objectives)
+
+## Outline
+
+- (Add section headings)

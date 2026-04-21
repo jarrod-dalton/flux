@@ -1,0 +1,11 @@
+# Case study
+
+> **Purpose:** End-to-end example (e.g., ASCVD + hospitalization + follow-up).
+
+## Learning objectives
+
+- (Add objectives)
+
+## Outline
+
+- (Add section headings)

@@ -1,0 +1,22 @@
+w---
+title: "Clinical Forecasting"
+subtitle: "Modeling Disease and Treatment Response"
+pagetitle: "Clinical Forecasting"
+author: "Jarrod Dalton"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+site: bookdown::bookdown_site
+documentclass: book
+bibliography: ["references/book.bib"]
+csl: "references/apa.csl"
+link-citations: true
+description: "A bookdown scaffold for a semester-style course book."
+output:
+  bookdown::gitbook:
+    css: style.css
+---
+
+# Preface {-}
+
+This is a scaffold. Replace the preface with your own.
+
+**Build command:** `bookdown::render_book("index.Rmd")`

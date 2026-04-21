@@ -1,0 +1,26 @@
+/* =========================================================
+   Book CSS entrypoint
+   ---------------------------------------------------------
+   Choose ONE theme by uncommenting a line below, e.g.:
+
+   @import url("themes/theme-01-ink-and-saffron.css");
+
+   Keep additional tweaks at the bottom of THIS file so you
+   always know what's "active".
+   ========================================================= */
+
+/* @import url("themes/theme-01-ink-and-saffron.css");  not bad */
+/*@import url("themes/theme-02-midnight-lab.css"); too dark */
+/* @import url("themes/theme-03-sea-glass.css"); not bad - smallish, no fancy bar on H2 */
+@import url("themes/theme-04-copper-and-ash.css"); 
+/* @import url("themes/theme-05-forest-notes.css"); liked copper better */
+/* @import url("themes/theme-06-royal-margin.css"); Nope */
+/* @import url("themes/theme-07-paperback-warm.css"); */
+/* @import url("themes/theme-08-solarized-ish.css"); */
+/* @import url("themes/theme-09-quiet-neon.css"); */
+/* @import url("themes/theme-10-minimal-serif.css"); */
+
+/* --- small global defaults (apply on top of any theme) --- */
+p { line-height: 1.55; }
+blockquote { font-size: 0.98em; }
+

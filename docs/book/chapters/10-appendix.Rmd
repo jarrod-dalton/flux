@@ -1,0 +1,11 @@
+# Appendix: conventions
+
+> **Purpose:** Notation, glossary, and implementation notes.
+
+## Learning objectives
+
+- (Add objectives)
+
+## Outline
+
+- (Add section headings)

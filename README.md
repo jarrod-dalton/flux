@@ -60,3 +60,7 @@ make release-dry
 ## Release line
 
 - Current ecosystem release: `v1.5.0`
+
+## Book scaffold
+
+- Bookdown scaffold for long-form ecosystem documentation lives in `docs/book/`.

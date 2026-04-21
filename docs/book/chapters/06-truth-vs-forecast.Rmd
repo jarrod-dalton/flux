@@ -1,0 +1,11 @@
+# Truth generation vs forecasting
+
+> **Purpose:** Truth simulation vs inference/prediction and evaluation grids.
+
+## Learning objectives
+
+- (Add objectives)
+
+## Outline
+
+- (Add section headings)

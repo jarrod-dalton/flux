@@ -1,0 +1,28 @@
+book_filename: "patient-sim-semantics"
+language:
+  ui:
+    chapter_name: "Chapter "
+delete_merged_file: true
+output_dir: "docs"
+rmd_files:
+  - "index.Rmd"
+  
+  - "part1-foundations.Rmd"
+  - "chapters/00_test.Rmd"
+  - "chapters/01-intro.Rmd"
+  - "chapters/02-the-puzzle.Rmd"
+  
+  - "part2-analytic-tools.Rmd"
+  - "chapters/03-time-state.Rmd"
+  - "chapters/04-observability.Rmd"
+  
+  - "part3-modeling.Rmd"
+  - "chapters/05-anchors-intervals.Rmd"
+  - "chapters/06-truth-vs-forecast.Rmd"
+  - "chapters/07-validation.Rmd"
+
+  - "part4-applications.Rmd"
+  - "chapters/08-orchestration.Rmd"
+  - "chapters/09-case-study.Rmd"
+  - "chapters/10-appendix.Rmd"
+  - "chapters/99-references.Rmd"

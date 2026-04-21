@@ -1,0 +1,75 @@
+/* Theme 02: Midnight Lab (dark mode-ish vibe without breaking gitbook) */
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@350;450;600;700&family=IBM+Plex+Mono:wght@350;450;600&display=swap");
+
+:root {
+  --bg: #0b1020;
+  --panel: #0f172a;
+  --body: #e5e7eb;
+  --muted: #b7c0d1;
+  --accent: #60a5fa; /* blue */
+  --accent2: #f472b6; /* pink */
+  --code-bg: #0a1228;
+  --code-border: rgba(96,165,250,0.22);
+}
+
+
+/* Common selectors for bookdown::gitbook */
+.book .book-body .page-wrapper .page-inner { max-width: 900px; }
+.book .book-body .page-wrapper .page-inner section.normal { padding-top: 18px; }
+h1, h2, h3, h4 { letter-spacing: 0.2px; }
+pre, code { font-variant-ligatures: none; }
+pre { overflow-x: auto; }
+
+
+body {
+  background: var(--bg);
+  color: var(--body);
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+.book .book-body {
+  background: var(--bg);
+}
+
+.book .book-body .page-wrapper {
+  background: var(--bg);
+}
+
+.book .book-body .page-wrapper .page-inner section.normal {
+  background: transparent;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover { color: var(--accent2); }
+
+h1, h2, h3 {
+  color: var(--body);
+}
+h2 {
+  color: var(--accent);
+  border-bottom: 1px solid rgba(96,165,250,0.25);
+  padding-bottom: 6px;
+}
+h3 { color: var(--accent2); }
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+code {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  background: rgba(96,165,250,0.10);
+  padding: 0.12em 0.30em;
+  border-radius: 6px;
+}
+
+blockquote {
+  border-left: 4px solid rgba(244,114,182,0.40);
+  padding-left: 14px;
+  color: var(--muted);
+}

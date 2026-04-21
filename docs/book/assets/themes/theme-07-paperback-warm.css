@@ -1,0 +1,57 @@
+/* Theme 07: Paperback Warm (book-ish, cozy) */
+@import url("https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&family=Assistant:wght@350;450;600;700&display=swap");
+
+:root {
+  --body: #1f2937;
+  --muted: #4b5563;
+  --accent: #9a3412; /* warm rust */
+  --accent2: #0f766e;
+  --bg: #fffaf0;
+  --code-bg: #fffbeb;
+  --code-border: rgba(154,52,18,0.18);
+}
+
+
+/* Common selectors for bookdown::gitbook */
+.book .book-body .page-wrapper .page-inner { max-width: 900px; }
+.book .book-body .page-wrapper .page-inner section.normal { padding-top: 18px; }
+h1, h2, h3, h4 { letter-spacing: 0.2px; }
+pre, code { font-variant-ligatures: none; }
+pre { overflow-x: auto; }
+
+
+body {
+  color: var(--body);
+  background: var(--bg);
+  font-family: "EB Garamond", ui-serif, Georgia, serif;
+  font-size: 18px;
+}
+
+h1, h2, h3, h4 {
+  font-family: "Assistant", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+h2 {
+  color: var(--accent);
+  border-bottom: 2px solid rgba(154,52,18,0.16);
+  padding-bottom: 6px;
+}
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+code {
+  background: rgba(154,52,18,0.08);
+  padding: 0.12em 0.28em;
+  border-radius: 6px;
+}
+
+blockquote {
+  border-left: 4px solid rgba(154,52,18,0.25);
+  padding-left: 14px;
+  color: var(--muted);
+}

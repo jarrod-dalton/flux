@@ -1,0 +1,59 @@
+/* Theme 09: Quiet Neon (modern accents, still readable) */
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@350;450;600;700&family=Source+Code+Pro:wght@400;600&display=swap");
+
+:root {
+  --bg: #ffffff;
+  --body: #0b1220;
+  --muted: #334155;
+  --accent: #0ea5e9; /* sky */
+  --accent2: #22c55e; /* green */
+  --code-bg: #0b1220;
+  --code-border: rgba(14,165,233,0.25);
+  --code-text: #e5e7eb;
+}
+
+
+/* Common selectors for bookdown::gitbook */
+.book .book-body .page-wrapper .page-inner { max-width: 900px; }
+.book .book-body .page-wrapper .page-inner section.normal { padding-top: 18px; }
+h1, h2, h3, h4 { letter-spacing: 0.2px; }
+pre, code { font-variant-ligatures: none; }
+pre { overflow-x: auto; }
+
+
+body {
+  background: var(--bg);
+  color: var(--body);
+  font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+h2 {
+  color: var(--accent);
+  border-bottom: 2px solid rgba(14,165,233,0.22);
+  padding-bottom: 6px;
+}
+h3 { color: var(--accent2); }
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+pre code {
+  color: var(--code-text);
+  background: transparent;
+  padding: 0;
+}
+code {
+  font-family: "Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  background: rgba(14,165,233,0.10);
+  padding: 0.12em 0.30em;
+  border-radius: 6px;
+}
+
+blockquote {
+  border-left: 4px solid rgba(34,197,94,0.40);
+  padding-left: 14px;
+  color: var(--muted);
+}
