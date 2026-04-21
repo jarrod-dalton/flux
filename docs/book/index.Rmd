@@ -1,7 +1,7 @@
-w---
-title: "Clinical Forecasting"
-subtitle: "Modeling Disease and Treatment Response"
-pagetitle: "Clinical Forecasting"
+---
+title: "Book Planned"
+subtitle: " "
+pagetitle: "Book Planned"
 author: "Jarrod Dalton"
 date: "`r format(Sys.Date(), '%Y-%m-%d')`"
 site: bookdown::bookdown_site
@@ -17,6 +17,6 @@ output:
 
 # Preface {-}
 
-This is a scaffold. Replace the preface with your own.
+A book is planned. What is currently here is a bookdown scaffold.
 
 **Build command:** `bookdown::render_book("index.Rmd")`

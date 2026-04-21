@@ -1,5 +1,20 @@
 # flux ecosystem news
 
+## 1.5.1
+
+- Reorganized package submodules under `subrepos/` and updated super-repo
+  automation scripts to use the new paths.
+- Archived legacy single-thread ChatGPT prompt corpus under
+  `docs/archive/chatgpt_prompts/`.
+- Added `docs/README.md` and `docs/current/AGENT_CONTEXT.md` to provide a clear
+  current-vs-archive docs structure and session re-prime scaffold.
+- Imported and integrated a bookdown scaffold under `docs/book/`.
+- Clarified book scaffold messaging:
+  - title now `Book Planned`
+  - subtitle now blank
+  - preface and book README explicitly state this is planned work with scaffold
+    content in place.
+
 ## 1.5.0
 
 - Introduced a top-level `flux` super-repo with package submodules:

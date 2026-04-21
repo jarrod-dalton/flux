@@ -1,6 +1,6 @@
-# Bookdown scaffold (R / bookdown)
+# Book Planned
 
-Tidy starting point for an R + **bookdown** book project.
+A book is planned. What is currently here is a bookdown scaffold.
 
 ## Quick start
 
