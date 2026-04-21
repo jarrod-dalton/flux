@@ -13,4 +13,4 @@ for reference under:
 
 Maintainer operational notes:
 
-- `99_maintainer_repo_migration.md`
+- See `docs/current/AGENT_CONTEXT.md` for current assistant/session context.

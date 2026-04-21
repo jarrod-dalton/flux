@@ -14,7 +14,7 @@ systems in irregular time.
   `fluxValidation`, `fluxOrchestrate`, `fluxASCVD`, `fluxModelTemplate`)
 - `tests_ecosystem/`: cross-package integration harness
 - `docs/`: current docs, archived prompt corpus, release announcements, and book scaffold
-- `scripts/release/release_1_5_0.sh`: coordinated release helper
+- `scripts/release/release_ecosystem.sh`: coordinated release helper
 
 ## Design priorities
 
