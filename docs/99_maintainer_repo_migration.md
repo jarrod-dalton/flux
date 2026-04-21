@@ -23,7 +23,7 @@ submodule URLs and local remotes afterward.
 2. From super-repo root, run:
 
 ```bash
-./sync_submodule_urls_to_flux.sh
+./scripts/maintenance/sync_submodule_urls_to_flux.sh
 git submodule sync --recursive
 git submodule update --init --recursive
 ```

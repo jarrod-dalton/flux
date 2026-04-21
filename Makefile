@@ -18,10 +18,10 @@ ecosystem-clean-reports:
 	find tests_ecosystem/reports -type f ! -name '.gitkeep' -delete
 
 release-dry:
-	./release_1_5_0.sh
+	./scripts/release/release_1_5_0.sh
 
 release-exec:
-	./release_1_5_0.sh --execute
+	./scripts/release/release_1_5_0.sh --execute
 
 release-gh:
-	./release_1_5_0.sh --execute --gh-release
+	./scripts/release/release_1_5_0.sh --execute --gh-release
