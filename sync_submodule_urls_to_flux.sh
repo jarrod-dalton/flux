@@ -16,12 +16,12 @@ git submodule set-url fluxModelTemplate "https://github.com/${OWNER}/fluxModelTe
 
 git submodule sync --recursive
 
-git -C fluxCore remote set-url origin "https://github.com/${OWNER}/fluxCore.git"
-git -C fluxPrepare remote set-url origin "https://github.com/${OWNER}/fluxPrepare.git"
-git -C fluxForecast remote set-url origin "https://github.com/${OWNER}/fluxForecast.git"
-git -C fluxValidation remote set-url origin "https://github.com/${OWNER}/fluxValidation.git"
-git -C fluxOrchestrate remote set-url origin "https://github.com/${OWNER}/fluxOrchestrate.git"
-git -C fluxASCVD remote set-url origin "https://github.com/${OWNER}/fluxASCVD.git"
-git -C fluxModelTemplate remote set-url origin "https://github.com/${OWNER}/fluxModelTemplate.git"
+git -C subrepos/fluxCore remote set-url origin "https://github.com/${OWNER}/fluxCore.git"
+git -C subrepos/fluxPrepare remote set-url origin "https://github.com/${OWNER}/fluxPrepare.git"
+git -C subrepos/fluxForecast remote set-url origin "https://github.com/${OWNER}/fluxForecast.git"
+git -C subrepos/fluxValidation remote set-url origin "https://github.com/${OWNER}/fluxValidation.git"
+git -C subrepos/fluxOrchestrate remote set-url origin "https://github.com/${OWNER}/fluxOrchestrate.git"
+git -C subrepos/fluxASCVD remote set-url origin "https://github.com/${OWNER}/fluxASCVD.git"
+git -C subrepos/fluxModelTemplate remote set-url origin "https://github.com/${OWNER}/fluxModelTemplate.git"
 
 echo "Submodule URLs updated to flux* for owner '${OWNER}'."

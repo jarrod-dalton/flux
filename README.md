@@ -16,7 +16,7 @@ This super-repo coordinates the package stack, ecosystem-level testing, and cros
 - Release orchestration script: `release_1_5_0.sh`
 - Cross-package integration test harness: `tests_ecosystem/`
 - Shared docs/notes for the ecosystem: `docs/`
-- Git submodules for package repos:
+- Git submodules for package repos (under `subrepos/`):
   - `fluxCore`
   - `fluxPrepare`
   - `fluxForecast`

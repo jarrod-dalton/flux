@@ -1,21 +1,21 @@
 [submodule "fluxCore"]
-	path = fluxCore
+	path = subrepos/fluxCore
 	url = https://github.com/jarrod-dalton/fluxCore.git
 [submodule "fluxPrepare"]
-	path = fluxPrepare
+	path = subrepos/fluxPrepare
 	url = https://github.com/jarrod-dalton/fluxPrepare.git
 [submodule "fluxForecast"]
-	path = fluxForecast
+	path = subrepos/fluxForecast
 	url = https://github.com/jarrod-dalton/fluxForecast.git
 [submodule "fluxValidation"]
-	path = fluxValidation
+	path = subrepos/fluxValidation
 	url = https://github.com/jarrod-dalton/fluxValidation.git
 [submodule "fluxOrchestrate"]
-	path = fluxOrchestrate
+	path = subrepos/fluxOrchestrate
 	url = https://github.com/jarrod-dalton/fluxOrchestrate.git
 [submodule "fluxASCVD"]
-	path = fluxASCVD
+	path = subrepos/fluxASCVD
 	url = https://github.com/jarrod-dalton/fluxASCVD.git
 [submodule "fluxModelTemplate"]
-	path = fluxModelTemplate
+	path = subrepos/fluxModelTemplate
 	url = https://github.com/jarrod-dalton/fluxModelTemplate.git

@@ -16,3 +16,5 @@
   target (`make ecosystem-clean-reports`).
 - Added maintainer migration helper script to sync submodule URLs after GitHub
   repository renames.
+- Reorganized package submodules under `subrepos/` to reduce root-level clutter
+  and limit future migration burden.

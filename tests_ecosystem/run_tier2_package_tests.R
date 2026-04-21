@@ -5,12 +5,12 @@ t0 <- Sys.time()
 status <- "PASS"
 
 repos <- c(
-  "fluxCore",
-  "fluxPrepare",
-  "fluxForecast",
-  "fluxValidation",
-  "fluxOrchestrate",
-  "fluxModelTemplate"
+  "subrepos/fluxCore",
+  "subrepos/fluxPrepare",
+  "subrepos/fluxForecast",
+  "subrepos/fluxValidation",
+  "subrepos/fluxOrchestrate",
+  "subrepos/fluxModelTemplate"
 )
 
 cmd_args <- commandArgs(trailingOnly = FALSE)
@@ -79,21 +79,22 @@ if (!is.null(report_path)) {
 
 for (repo in repos) {
   p <- file.path(root, repo)
+  repo_label <- basename(repo)
   if (!file.exists(file.path(p, "DESCRIPTION"))) {
     status <- "FAIL"
-    results[[repo]] <- list(status = "FAIL", fail = NA_integer_, warn = NA_integer_, skip = NA_integer_, pass = NA_integer_, seconds = 0, note = "Missing DESCRIPTION")
-    message("[Tier 2] ", repo, " -> FAIL (missing DESCRIPTION)")
+    results[[repo]] <- list(status = "FAIL", fail = NA_integer_, warn = NA_integer_, skip = NA_integer_, pass = NA_integer_, seconds = 0, note = "Missing DESCRIPTION", label = repo_label)
+    message("[Tier 2] ", repo_label, " -> FAIL (missing DESCRIPTION)")
     next
   }
-  message("\n[Tier 2] Testing ", repo)
+  message("\n[Tier 2] Testing ", repo_label)
   pkg_t0 <- Sys.time()
   out <- tryCatch(run_pkg_tests(p), error = function(e) e)
   pkg_dt <- as.numeric(difftime(Sys.time(), pkg_t0, units = "secs"))
 
   if (inherits(out, "error")) {
     status <- "FAIL"
-    results[[repo]] <- list(status = "FAIL", fail = NA_integer_, warn = NA_integer_, skip = NA_integer_, pass = NA_integer_, seconds = pkg_dt, note = conditionMessage(out))
-    message("[Tier 2] ", repo, " -> FAIL (runner error: ", conditionMessage(out), ")")
+    results[[repo]] <- list(status = "FAIL", fail = NA_integer_, warn = NA_integer_, skip = NA_integer_, pass = NA_integer_, seconds = pkg_dt, note = conditionMessage(out), label = repo_label)
+    message("[Tier 2] ", repo_label, " -> FAIL (runner error: ", conditionMessage(out), ")")
     next
   }
 
@@ -101,18 +102,18 @@ for (repo in repos) {
   counts <- extract_counts(out)
   if (is.null(counts)) {
     status <- "FAIL"
-    results[[repo]] <- list(status = "FAIL", fail = NA_integer_, warn = NA_integer_, skip = NA_integer_, pass = NA_integer_, seconds = pkg_dt, note = "Could not parse test summary line")
-    message("[Tier 2] ", repo, " -> FAIL (no summary line found)")
+    results[[repo]] <- list(status = "FAIL", fail = NA_integer_, warn = NA_integer_, skip = NA_integer_, pass = NA_integer_, seconds = pkg_dt, note = "Could not parse test summary line", label = repo_label)
+    message("[Tier 2] ", repo_label, " -> FAIL (no summary line found)")
     next
   }
 
   pkg_status <- if (counts$fail > 0L) "FAIL" else "PASS"
   if (identical(pkg_status, "FAIL")) status <- "FAIL"
-  results[[repo]] <- c(list(status = pkg_status, seconds = pkg_dt, note = ""), counts)
+  results[[repo]] <- c(list(status = pkg_status, seconds = pkg_dt, note = "", label = repo_label), counts)
   message(
     sprintf(
       "[Tier 2] %s -> %s [FAIL %d | WARN %d | SKIP %d | PASS %d] (%.2fs)",
-      repo, pkg_status, counts$fail, counts$warn, counts$skip, counts$pass, pkg_dt
+      repo_label, pkg_status, counts$fail, counts$warn, counts$skip, counts$pass, pkg_dt
     )
   )
 }
@@ -121,15 +122,16 @@ message("\n[Tier 2] Summary")
 for (repo in repos) {
   r <- results[[repo]]
   if (is.null(r)) next
+  label <- if (!is.null(r$label)) r$label else basename(repo)
   if (!is.na(r$fail)) {
     message(
       sprintf(
         "  - %-24s %4s  [FAIL %d | WARN %d | SKIP %d | PASS %d] (%.2fs)",
-        repo, r$status, r$fail, r$warn, r$skip, r$pass, r$seconds
+        label, r$status, r$fail, r$warn, r$skip, r$pass, r$seconds
       )
     )
   } else {
-    message(sprintf("  - %-24s %4s  (%s)", repo, r$status, r$note))
+    message(sprintf("  - %-24s %4s  (%s)", label, r$status, r$note))
   }
 }
 

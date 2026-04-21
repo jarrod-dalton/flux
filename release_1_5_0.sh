@@ -12,13 +12,13 @@ EXECUTE=0
 CREATE_GH_RELEASE=0
 
 REPOS=(
-  "fluxCore"
-  "fluxPrepare"
-  "fluxForecast"
-  "fluxValidation"
-  "fluxOrchestrate"
-  "fluxModelTemplate"
-  "fluxASCVD"
+  "subrepos/fluxCore"
+  "subrepos/fluxPrepare"
+  "subrepos/fluxForecast"
+  "subrepos/fluxValidation"
+  "subrepos/fluxOrchestrate"
+  "subrepos/fluxModelTemplate"
+  "subrepos/fluxASCVD"
 )
 
 usage() {
@@ -68,12 +68,13 @@ run_cmd() {
 
 for repo in "${REPOS[@]}"; do
   dir="${ROOT_DIR}/${repo}"
+  repo_label="$(basename "${repo}")"
   if [[ ! -d "${dir}/.git" ]]; then
-    echo "Skipping ${repo}: not a git repo"
+    echo "Skipping ${repo_label}: not a git repo"
     continue
   fi
 
-  echo "=== ${repo} ==="
+  echo "=== ${repo_label} ==="
   git -C "${dir}" status --short
 
   run_cmd git -C "${dir}" add -A
@@ -98,7 +99,7 @@ for repo in "${REPOS[@]}"; do
         echo "[DRY-RUN] gh release create ${TAG} --repo ${OWNER}/${repo_name} --title ${TAG} --notes-file ${news_file}"
       fi
     else
-      echo "No NEWS.md in ${repo}; skipping gh release note file"
+      echo "No NEWS.md in ${repo_label}; skipping gh release note file"
     fi
   fi
 

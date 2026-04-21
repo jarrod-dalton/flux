@@ -42,7 +42,7 @@ make ecosystem-all
 ```
 
 Notes:
-- These scripts assume local package directories are present under this parent folder.
+- These scripts assume local package directories are present under `subrepos/` in this parent folder.
 - Tier 3 intentionally skips if `fluxASCVD` internals are unavailable.
 - Each run writes logs/reports under `tests_ecosystem/reports/`.
 - Any `make ecosystem-*` invocation produces one consolidated `ecosystem_*.txt` report file.
