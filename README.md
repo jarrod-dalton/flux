@@ -4,6 +4,11 @@
 
 This super-repo coordinates the package stack, ecosystem-level testing, and cross-repo releases.
 
+## Start Here
+
+- Canonical tutorials live in [`tutorials/`](./tutorials/)
+- Beginner entry point: [`tutorials/00_start_here.md`](./tutorials/00_start_here.md)
+
 ## Why flux
 
 - Event-driven architecture with explicit state transitions

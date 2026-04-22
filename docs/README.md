@@ -2,6 +2,7 @@
 
 This folder is organized into three categories:
 
+- `../tutorials/`: canonical user-learning/tutorial pathway
 - `current/`: living operational context and active guidance for current work
 - `release_announcements/`: release announcement artifacts used for publishing notes
 - `book/`: long-form bookdown scaffold and related assets

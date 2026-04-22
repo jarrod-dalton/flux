@@ -1,0 +1,123 @@
+---
+title: "Engine + ModelProvider scaffold"
+maturity: "validated"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Engine + ModelProvider scaffold}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+This vignette demonstrates the core architecture:
+
+- `Entity` holds mutable state, sparse history, and an event log.
+- `Engine` orchestrates the simulation **and materializes models** using a provider + model spec.
+- `ModelBundle` supplies the dynamics.
+- `ModelProviders` load bundles from different sources.
+
+
+### Determinism, tie-breaking, and optional entity tags
+
+When multiple processes propose events at the same `time_next`, the engine selects one deterministically by ordering on:
+
+1. earliest `time_next`, then
+2. lexicographic `process_id`.
+
+This means `process_id` is not just a label, it is part of the model's deterministic resolution policy. If your model has a preferred priority when ties occur, encode that priority into the `process_id` (for example, a zero-padded numeric prefix).
+
+For downstream linking in a HIPAA-conscious way, a `Entity` may also carry an optional single-column identifier `id` (default `NULL`). This is intended for *de-identified* tags (for example, a study-specific pseudonym), and packages may propagate it only if you supply it.
+
+```{r}
+library(fluxCore)
+set.seed(1)
+
+schema <- default_entity_schema()
+
+# Extend schema without changing Entity/Engine code:
+schema$bmi <- list(default = 28, coerce = as.numeric, validate = function(x) length(x) == 1L && (is.na(x) || x > 0))
+
+p <- Entity$new(
+  init = list(age = 55, miles_to_work = 10, bmi = 31),
+  schema = schema,
+  entity_type = "entity",
+  time0 = 0
+)
+
+prov <- PackageProvider$new()
+
+eng <- Engine$new(
+  provider   = prov,
+  model_spec = list(name = "default")  # selects default_model_bundle()
+)
+
+out <- eng$run(p, max_events = 200, return_observations = TRUE)
+
+tail(out$events, 6)
+tail(out$observations, 6)
+out$entity$state(c("age", "miles_to_work", "bmi"))
+```
+
+
+## Batch simulation with global parameter draws
+
+```{r}
+entities <- lapply(1:4, function(i) {
+  Entity$new(
+    init = list(age = 45 + i, miles_to_work = 10),
+    schema = schema,
+    entity_type = "entity",
+    time0 = 0
+  )
+})
+names(entities) <- paste0("id", 1:4)
+
+batch <- run_cohort(
+  eng,
+  entities,
+  n_param_draws = 3,
+  n_sims = 2,
+  max_events = 50,
+  backend = "none",
+  seed = 123
+)
+
+head(batch$index)
+```
+
+## Policy / intervention layering
+
+```{r}
+# Example: add an intervention flag after time >= 2 (requires schema include tx_on)
+schema2 <- schema
+schema2$tx_on <- list(default = 0, coerce = as.integer, validate = function(x) x %in% c(0L,1L))
+
+p2 <- Entity$new(
+  init = list(age = 55, miles_to_work = 10, tx_on = 0),
+  schema = schema2,
+  entity_type = "entity",
+  time0 = 0
+)
+
+baseline <- default_model_bundle()
+
+policy <- list(
+  transition = function(entity, event_type, time_next, ctx, baseline_changes = NULL) {
+    if (entity$last_time >= 2) return(list(tx_on = 1L))
+    NULL
+  }
+)
+
+bundle2 <- compose_bundles(baseline, policy)
+
+# Build an engine using a custom registry entry
+prov2 <- PackageProvider$new(registry = list(composed = function() bundle2))
+eng2 <- Engine$new(provider = prov2, model_spec = list(name = "composed"))
+
+out2 <- eng2$run(p2, max_events = 30)
+tail(out2$events, 5)
+out2$entity$state(c("age","tx_on"))
+```
