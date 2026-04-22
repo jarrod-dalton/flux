@@ -1,5 +1,15 @@
 # flux ecosystem news
 
+## 1.7.0
+
+- Coordinated ecosystem version alignment: all package subrepos are now at
+  `1.7.0`.
+- Package dependency floors were synchronized across subrepos to `>= 1.7.0`
+  for flux-internal dependencies.
+- Includes canonical-time contract work completed in recent package updates:
+  `bundle$time_spec` is the primary runtime source of model time semantics,
+  with runtime override paths removed from affected APIs.
+
 ## 1.5.1
 
 - Reorganized package submodules under `subrepos/` and updated super-repo
