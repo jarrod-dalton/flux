@@ -8,7 +8,13 @@
   `docs/archive/chatgpt_prompts/`.
 - Added `docs/README.md` and `docs/current/AGENT_CONTEXT.md` to provide a clear
   current-vs-archive docs structure and session re-prime scaffold.
-- Imported and integrated a bookdown scaffold under `docs/book/`.
+- Imported and integrated a bookdown scaffold under
+  `docs/work_in_progress/book/`.
+- Added `docs/work_in_progress/` convention for exploratory materials, including
+  API drafts and pre-book content.
+- Sunset the prototype `fluxCore/inst/plumber/sim_api.R` package-shipped API
+  stub and moved it to `docs/work_in_progress/api/` pending formalized API
+  scaffold design.
 - Clarified book scaffold messaging:
   - title now `Book Planned`
   - subtitle now blank

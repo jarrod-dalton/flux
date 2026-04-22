@@ -5,7 +5,9 @@ This folder is organized into three categories:
 - `../tutorials/`: canonical user-learning/tutorial pathway
 - `current/`: living operational context and active guidance for current work
 - `release_announcements/`: release announcement artifacts used for publishing notes
-- `book/`: long-form bookdown scaffold and related assets
+- `work_in_progress/`: exploratory drafts not yet considered stable user docs
+  - `work_in_progress/book/`: long-form bookdown scaffold and related assets
+  - `work_in_progress/api/`: API/prototyping drafts pending formal package support
 
 Historical prompt corpus from early single-thread ChatGPT workflows is retained
 for reference under:

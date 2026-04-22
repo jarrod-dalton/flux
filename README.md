@@ -68,4 +68,5 @@ make release-dry
 
 ## Book scaffold
 
-- Bookdown scaffold for long-form ecosystem documentation lives in `docs/book/`.
+- Bookdown scaffold for long-form ecosystem documentation lives in
+  `docs/work_in_progress/book/`.
