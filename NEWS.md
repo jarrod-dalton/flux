@@ -1,5 +1,13 @@
 # flux ecosystem news
 
+## 1.8.0
+
+- Added an installable root `flux` meta-package so users can install the core
+  ecosystem with `remotes::install_github("jarrod-dalton/flux")`.
+- Updated super-repo README install guidance and release line to `v1.8.0`.
+- Coordinated ecosystem release alignment to `1.8.0` across subrepos and
+  internal dependency floors.
+
 ## 1.7.0
 
 - Coordinated ecosystem version alignment: all package subrepos are now at

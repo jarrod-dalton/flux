@@ -89,7 +89,7 @@ make release-dry
 
 ## Release line
 
-- Current ecosystem release: `v1.7.0`
+- Current ecosystem release: `v1.8.0`
 
 ## Book scaffold
 
