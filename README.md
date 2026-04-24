@@ -1,8 +1,33 @@
 # flux Ecosystem Super-Repo
+[![Release](https://img.shields.io/github/v/release/jarrod-dalton/flux?display_name=tag)](https://github.com/jarrod-dalton/flux/releases)
+[![Downloads](https://img.shields.io/github/downloads/jarrod-dalton/flux/total)](https://github.com/jarrod-dalton/flux/releases)
+[![Ecosystem Tests](https://img.shields.io/badge/tests-3_tiers-brightgreen)](./tests_ecosystem/README.md)
+[![Language: R](https://img.shields.io/badge/language-R-276DC3?logo=r&logoColor=white)](https://www.r-project.org/)
 
 `flux` is a modular R ecosystem for simulation modeling of probabilistic dynamic systems in irregular time.
 
 This super-repo coordinates the package stack, ecosystem-level testing, and cross-repo releases.
+
+## One-Line Install (Core Stack)
+
+Install the core flux ecosystem packages in one step:
+
+```r
+remotes::install_github("jarrod-dalton/flux")
+```
+
+This meta-package installs:
+
+- `fluxCore`
+- `fluxPrepare`
+- `fluxForecast`
+- `fluxValidation`
+- `fluxOrchestrate`
+
+Reference/demo packages remain separate:
+
+- `fluxASCVD`
+- `fluxModelTemplate`
 
 ## Start Here
 
@@ -64,7 +89,7 @@ make release-dry
 
 ## Release line
 
-- Current ecosystem release: `v1.5.0`
+- Current ecosystem release: `v1.7.0`
 
 ## Book scaffold
 

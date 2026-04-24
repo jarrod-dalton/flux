@@ -1,0 +1,9 @@
+^\\.git$
+^\\.gitignore$
+^\\.gitmodules$
+^subrepos$
+^tests_ecosystem$
+^scripts$
+^docs$
+^tutorials$
+^Makefile$
