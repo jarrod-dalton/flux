@@ -1,5 +1,14 @@
 # flux ecosystem news
 
+## 1.8.1
+
+- Targeted patch release for two subrepos:
+  - `fluxCore` 1.8.1: `refresh_rules` contract hardening with fail-fast
+    validation, clearer errors, and added tests/docs.
+  - `fluxModelTemplate` 1.8.1: runnable instructional scaffolds with expanded
+    end-to-end template tests.
+- No coordinated version bump across the full ecosystem in this patch.
+
 ## 1.8.0
 
 - Added an installable root `flux` meta-package so users can install the core
