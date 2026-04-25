@@ -3,3 +3,6 @@
 # Generated ecosystem test artifacts
 tests_ecosystem/reports/*
 !tests_ecosystem/reports/.gitkeep
+
+reports/*
+!reports/.gitkeep
