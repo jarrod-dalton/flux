@@ -237,7 +237,16 @@ Specs are validated against the model schema at construction time. This prevents
 
 ```r
 # eval = FALSE
-schema <- fluxCore::default_entity_schema()
+schema <- list(
+  route_zone = list(
+    type = "categorical",
+    levels = c("urban", "suburban", "rural"),
+    default = "urban",
+    coerce = as.character
+  ),
+  sbp = list(type = "continuous", default = NA_real_, coerce = as.numeric),
+  battery_pct = list(type = "continuous", default = NA_real_, coerce = as.numeric)
+)
 
 spec_bp <- spec_state(
   schema         = schema,

@@ -1,0 +1,17 @@
+[Ecosystem] Summary: FAIL
+[Ecosystem] Generated: 2026-04-25 11:00:48
+
+  - tier1: FAIL (0.02s)
+  - tier2: FAIL (0.02s)
+  - tier3: FAIL (0.02s)
+
+[Ecosystem] Total duration: 0.10s
+
+========== TIER1 OUTPUT ==========
+Fatal error: cannot open file '/Users/daltonj/patientSim/run_tier1_smoke.R': No such file or directory
+
+========== TIER2 OUTPUT ==========
+Fatal error: cannot open file '/Users/daltonj/patientSim/run_tier2_package_tests.R': No such file or directory
+
+========== TIER3 OUTPUT ==========
+Fatal error: cannot open file '/Users/daltonj/patientSim/run_tier3_ascvd_demo.R': No such file or directory

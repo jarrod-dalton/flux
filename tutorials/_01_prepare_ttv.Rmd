@@ -1,0 +1,504 @@
+---
+title: "patientSimPrepare: Building Train/Test/Validation (TTV) datasets from raw-ish EHR tables"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{patientSimPrepare: from raw-ish EHR tables to TTV datasets}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4
+)
+set.seed(1)
+```
+
+## Why this package exists
+
+The patientSim ecosystem is built around mechanistic, event-driven models of patient trajectories.
+In this framework, we do not begin with regression models applied directly to raw EHR tables.
+Instead, we begin by explicitly defining the processes by which patient state evolves over time:
+clinical events occur, state variables update in response to those events, and patients enter and exit follow-up.
+
+This distinction matters because real patients live on multiple clocks simultaneously.
+Laboratory measurements arrive sporadically.
+Blood pressure is measured opportunistically.
+Acute events such as myocardial infarction or stroke occur at irregular, clinically meaningful times.
+Medications start and stop.
+Follow-up ends for reasons that are often unrelated to death.
+
+Traditional EHR analyses frequently flatten this complexity by imposing an implicit time grid,
+silently carrying forward values, or discarding information that does not align neatly.
+Those choices encode assumptions, whether or not we acknowledge them.
+
+The patientSim framework takes the opposite approach.
+Time, events, and state are made *explicit*, and modeling assumptions are surfaced rather than buried.
+Models are constructed first, and *data are then viewed through those models*.
+
+The purpose of `patientSimPrepare` is to support this philosophy by providing tools to construct
+model-aligned datasets from irregular longitudinal data, without prematurely committing to modeling
+choices that belong elsewhere in the ecosystem.
+
+## From toy models to probabilistic models
+
+In the introductory vignette, we deliberately worked with simplified and largely deterministic models.
+Events occurred on fixed schedules, and state transitions were transparent functions of time or prior state.
+This was a pedagogical choice, not a statement about how real models should behave.
+
+In applied settings, nearly all components of a patient-level simulation are *probabilistic*:
+
+- The occurrence of clinical events is stochastic.
+- State transitions given an event are stochastic.
+- Competing risks and censoring are intrinsic features of the data-generating process.
+
+Developing these models requires training data that respect the same temporal and causal structure
+that the simulation itself will enforce.
+
+`patientSimPrepare` exists to build those training datasets.
+
+Specifically, it constructs *train/test/validation (TTV) datasets* that are suitable for fitting probabilistic
+models of event occurrence and state evolution.
+Once trained, those models are packaged as functions inside a `ModelBundle` and handed back to the simulation engine.
+`Prepare` sits squarely upstream of that step: it does not fit models, and it does not simulate patients.
+It ensures that the data used to *learn* those models are aligned with the mechanistic structure of the simulation.
+
+## Core concepts in patientSimPrepare
+
+Before we touch any data, we need a shared vocabulary.
+The concepts introduced here appear repeatedly throughout the ecosystem.
+They exist to remove ambiguity rather than to add complexity.
+
+### Anchors
+
+The general model structure in patientSim is event-driven, with state reconstructed at clinically meaningful time points, which we call **anchors**.
+
+Commonly, in simulation modeling, a choice is made to impose a regular time grid (e.g., monthly intervals) and to align all data to that grid. This is a valid choice, but it is not the only choice, and it is not always the best choice. In patientSim, we allow for flexible definitions of anchors that can be tailored to the specific modeling task at hand. As event sequences are made explicit in the model definition, a natural choice for anchors is the occurrence of events themselves. For example, if we are modeling the risk of myocardial infarction (MI) after a clinic visit, we might define anchors at each clinic visit and at the occurrence of MI. This allows us to reconstruct patient state at those clinically meaningful moments and to model transitions between them.
+
+The patientSimPrepare package reconstructs patient states - as defined by the model - as of each anchor. This is a critical step that ensures the training data for probabilistic models are aligned with the mechanistic structure of the simulation. By defining anchors in this way, we can capture the dynamic nature of patient trajectories and avoid the pitfalls of imposing an arbitrary time grid that may not align with the underlying clinical processes.
+
+### Intervals
+
+An *interval* is the span of time between two anchors. Intervals are the fundamental units of analysis in `Prepare`. Each interval has a start anchor, an end anchor, a duration, an eligibility status, and zero or more events occurring within it. Rows within TTV datasets are typically defined at the interval level, with covariates representing patient state at the start of the interval and outcomes representing events occurring within or at the end of the interval.
+
+### As-of state
+
+At each anchor, patient state is reconstructed using available data *as of that time*, subject to explicit recency and validity rules.
+This avoids silent carry-forward of stale measurements and forces modeling decisions about what information is considered current.
+
+### Follow-up versus alive
+
+A central distinction in this framework is between being *alive* and being *under follow-up*. A patient may be alive but no longer observed. After follow-up ends, patient state is undefined, even if death has not occurred. This distinction is essential for correctly defining denominators in both model development and downstream validation.
+
+### Train/Test/Validation (TTV) tables
+
+A *TTV table* contains one row per interval. Each row defines the interval boundaries, the reconstructed state at the start of the interval,
+events occurring within the interval, and values of indicators as of the end of the interval. These tables are the primary outputs of `patientSimPrepare` and the primary inputs to downstream model training.
+
+### A visual summary
+
+The figure below illustrates these concepts schematically for a single patient.
+Circles indicate anchors.
+Horizontal segments indicate intervals.
+Measurements occur irregularly and are aligned to anchors via explicit rules.
+Follow-up may end before death.
+
+```{r figure-anchors-intervals, echo=FALSE}
+op <- par(mar = c(4.1, 0.5, 2.6, 0.5))
+on.exit(par(op), add = TRUE)
+
+t_max <- 10
+
+# Toy timeline for one patient (illustrative only)
+anchors <- c(0, 3, 7, 9)
+followup_end <- 9
+death_time <- 10
+
+labs_t <- c(0.8, 2.2, 4.6, 6.0, 8.4)
+bp_t   <- c(1.0, 5.2, 8.9)
+evt_mi <- 7.3
+
+plot(
+  x = c(0, t_max), y = c(0, 10), type = "n",
+  xaxt = "n", yaxt = "n", xlab = "Model time (illustrative)", ylab = "",
+  main = "Anchors, intervals, and follow-up (schematic)"
+)
+axis(1, at = seq(0, t_max, by = 1), labels = seq(0, t_max, by = 1))
+
+# Lanes
+y_interval <- 8.5
+y_labs     <- 5.5
+y_bp       <- 3.5
+y_events   <- 1.6
+
+# Interval backbone
+segments(0, y_interval, t_max, y_interval, lwd = 1)
+
+# Intervals between anchors
+for (i in seq_len(length(anchors) - 1)) {
+  segments(anchors[i], y_interval, anchors[i + 1], y_interval, lwd = 6)
+}
+
+# Anchors
+points(anchors, rep(y_interval, length(anchors)), pch = 21, bg = "white", cex = 1.3)
+text(anchors, rep(y_interval + 0.6, length(anchors)), labels = paste0("A", seq_along(anchors) - 1), cex = 0.9)
+
+# Measurements (irregular)
+segments(0, y_labs, t_max, y_labs)
+points(labs_t, rep(y_labs, length(labs_t)), pch = 16, cex = 0.9)
+text(0, y_labs + 0.55, "Labs (LDL/HDL)", pos = 4)
+
+segments(0, y_bp, t_max, y_bp)
+points(bp_t, rep(y_bp, length(bp_t)), pch = 15, cex = 0.9)
+text(0, y_bp + 0.55, "Vitals (SBP/DBP)", pos = 4)
+
+# Events
+segments(0, y_events, t_max, y_events)
+points(evt_mi, y_events, pch = 4, cex = 1.4, lwd = 2)
+text(0, y_events + 0.55, "Clinical events", pos = 4)
+text(evt_mi, y_events + 0.55, "MI", pos = 4)
+
+# Follow-up end vs death
+abline(v = followup_end, lty = 2)
+text(followup_end + 0.15, 0.30, "follow-up ends", srt = 90, adj = 0, cex = 0.85)
+
+abline(v = death_time, lty = 3)
+text(death_time + 0.15, 0.30, "death", srt = 90, adj = 0)
+```
+
+*Figure 1.* Anchors define points of state reconstruction; intervals define the spans over which events and transitions are modeled.
+Follow-up is distinct from survival.
+
+
+## Raw-ish EHR tables
+
+In applied work, `patientSimPrepare` typically receives multiple longitudinal tables that were never designed to align with one another in time. Laboratory results, vitals, medications, and clinical events are recorded when care happens, not when a model would prefer them to be observed.
+
+For this tutorial, we generate a small set of *raw-ish* EHR tables that resemble these inputs. The goal is not realism in distributional detail, but realism in *structure*: asynchronous records, irregular timing, and partial observation.
+
+### Generating example tables
+
+Below, we load some fake EHR tables, which are generated via an internal helper function:
+
+
+```{r ehr_load}
+ehr <- patientSimASCVD:::ascvd_make_example_ehr(n_patients = 50, seed = 123)
+```
+
+We inspect these tables briefly to emphasize their lack of temporal alignment.
+
+```{r ehr_tables, echo=FALSE, results='asis'}
+# For display, show two example patients across each longitudinal table
+example_ids <- as.character(sort(unique(ehr$patients$patient_id))[1:2])
+
+patients_2 <- ehr$patients[ehr$patients$patient_id %in% example_ids, , drop = FALSE]
+labs_2     <- ehr$labs[ehr$labs$patient_id %in% example_ids, , drop = FALSE]
+vitals_2   <- ehr$vitals[ehr$vitals$patient_id %in% example_ids, , drop = FALSE]
+events_2   <- ehr$events[ehr$events$patient_id %in% example_ids, , drop = FALSE]
+meds_2     <- ehr$meds[ehr$meds$patient_id %in% example_ids, , drop = FALSE]
+
+knitr::kable(patients_2, caption = "Patients (one row per patient)")
+knitr::kable(labs_2,     caption = "Labs (LDL/HDL) for two example patients")
+knitr::kable(vitals_2,   caption = "Vitals (SBP/DBP) for two example patients")
+knitr::kable(events_2,   caption = "Clinical events for two example patients")
+knitr::kable(meds_2,     caption = "Medications for two example patients")
+```
+
+
+## Preparing time-to-variable (TTV) datasets
+
+Each EHR table has its own clock. Dates do not line up, and that is precisely the point.
+
+Simulation models operate in *relative* time (days, weeks, years), while EHR extracts typically use calendar dates. In this vignette, we will work in **weeks**.
+
+```{r time_mapping}
+ctx <- patientSimCore::ps_set_time_unit(
+  ctx = list(),
+  unit = "weeks"
+)
+
+example_ids <- head(ehr$patients$patient_id, 2)
+```
+
+
+## The Prepare workflow: standardize → segment → build
+
+The goal of `patientSimPrepare` is to translate raw-ish EHR tables into **analysis-ready rows** that can be used to train probabilistic components of a simulation model.
+
+The workflow has three main steps:
+
+1. **Standardize input tables**  
+   (`prepare_observations()`, `prepare_events()`)  
+   Convert multiple EHR tables into a consistent internal format with a shared time scale.
+
+2. **Segmentation**  
+   (`spec_event_process()` + segmentation helpers)  
+   Define how follow-up is divided into **start–stop intervals**.  
+   *Segmentation* means: “when meaningful new information arrives, start a new interval.”
+
+3. **Build TTV datasets**  
+   (`build_ttv_event_process()`, `build_ttv_state()`)  
+   Produce rows suitable for model training, with patient-level train/test/validation splits.
+
+```{r prepare_library}
+library(patientSimPrepare)
+```
+
+
+## Step 1. Standardize observations (labs and vitals)
+
+We begin by standardizing laboratory and vital-sign tables.  
+We do **not** rename date columns; instead, we tell Prepare which column contains time via `time_col=`.
+
+```{r prepare_observations}
+obs <- prepare_observations(
+  tables = list(
+    labs   = ehr$labs,
+    vitals = ehr$vitals
+  ),
+  specs = list(
+    labs = list(
+      id_col   = "patient_id",
+      time_col = "obs_date",
+      vars     = c("ldl", "hdl"),
+      group    = "labs"
+    ),
+    vitals = list(
+      id_col   = "patient_id",
+      time_col = "obs_date",
+      vars     = c("sbp", "dbp"),
+      group    = "vitals"
+    )
+  ),
+  ctx = ctx
+)
+
+obs |>
+  dplyr::filter(patient_id %in% example_ids) |>
+  head(10) |>
+  knitr::kable()
+```
+
+Internally, calendar dates are mapped onto a numeric time axis using the model’s time unit (weeks). The choice of origin (stored in `ps_time_spec()`) is arbitrary and does not affect interval lengths or model behavior.
+
+## Step 2. Standardize clinical events
+
+Next, we standardize clinical events such as MI, stroke, hospitalization, and death.
+
+```{r prepare_events}
+events <- prepare_events(
+  events    = ehr$events,
+  id_col    = "patient_id",
+  time_col  = "event_date",
+  type_col  = "event",
+  ctx       = ctx
+)
+
+events |>
+  dplyr::filter(patient_id %in% example_ids) |>
+  head(10) |>
+  knitr::kable()
+```
+
+
+## Step 3. Patient-level train/test/validation (TTV) splits
+
+TTV split assignments are defined at the *patient* level.
+
+In this example, we generate splits externally (here, by random assignment).  
+`prepare_splits()` then validates and standardizes this table so it can be used by downstream Prepare functions.
+
+```{r prepare_splits}
+set.seed(1)
+
+splits_raw <- data.frame(
+  patient_id = ehr$patients$patient_id,
+  split = sample(
+    c("train", "test", "validation"),
+    size = nrow(ehr$patients),
+    replace = TRUE,
+    prob = c(0.70, 0.15, 0.15)
+  ),
+  stringsAsFactors = FALSE
+)
+
+splits <- prepare_splits(splits_raw)
+
+splits |>
+  head(6) |>
+  knitr::kable()
+```
+
+
+## A) Major cardiovascular events via an event-process lens
+
+Our first prediction task targets the slower-moving **major cardiovascular event process**.  
+We want a time-to-event dataset whose intervals may end in MI, stroke, death, or censoring.
+
+### Follow-up window
+
+For teaching purposes, we define each patient’s follow-up start as the **earliest observed time** across all standardized observation and event tables. Follow-up ends at a fixed administrative horizon (9 years).
+
+```{r followup}
+fu_obs <- obs |>
+  dplyr::group_by(patient_id) |>
+  dplyr::summarize(t_obs_min = min(time), .groups = "drop")
+
+fu_evt <- events |>
+  dplyr::group_by(patient_id) |>
+  dplyr::summarize(t_evt_min = min(time), .groups = "drop")
+
+fu_death <- events |>
+  dplyr::filter(event_type == "death") |>
+  dplyr::group_by(patient_id) |>
+  dplyr::summarize(death_time = min(time), .groups = "drop")
+
+followup <- splits |>
+  dplyr::select(patient_id) |>
+  dplyr::left_join(fu_obs, by = "patient_id") |>
+  dplyr::left_join(fu_evt, by = "patient_id") |>
+  dplyr::mutate(
+    followup_start = pmin(t_obs_min, t_evt_min, na.rm = TRUE),
+    followup_end   = followup_start + (9 * 52)
+  ) |>
+  dplyr::left_join(fu_death, by = "patient_id") |>
+  dplyr::select(patient_id, followup_start, followup_end, death_time)
+
+followup |>
+  dplyr::filter(patient_id %in% example_ids) |>
+  knitr::kable()
+```
+
+
+### Event-process settings (segmentation rules)
+
+Here we define how follow-up is segmented into start–stop intervals.
+
+In this example:
+- Intervals may start or end at vitals measurement times.
+- Intervals also restart when SBP crosses common clinical bins.
+
+`spec_event_process()` creates a **settings object** that tells Prepare how to translate an event stream (e.g., MI, stroke, death) and a set of time-stamped observations (e.g., blood pressure measurements) into **start–stop risk intervals**. In plain language, it answers: *Which events “count” as outcomes? When should a new risk interval begin? Which time points are eligible cut points? Where does follow-up begin? And how should death be handled?* The resulting settings object is then passed into `build_ttv_event_process()`, which applies these rules consistently across patients.
+
+The table below describes the specific settings we use in this vignette.
+
+| Argument used here | What it controls | Additional notes (values & behavior) |
+|---|---|---|
+| `event_types` | Which event labels are treated as outcomes in the event-process TTV dataset. | Character vector. Any event types not listed are treated as “non-outcome” events (they may still matter if you later include them as segmentation triggers, but they won’t be labeled as outcomes by this event-process model). |
+| `split_on_groups` | Which **observation group(s)** supply candidate time points where intervals may start/end. | Typically a group name used in `prepare_observations()` (e.g., `"vitals"`). Intervals can be cut at times when new measurements arrive, consistent with the idea that risk updates when information updates. |
+| `segment_on_vars` | Which variable(s) may trigger a new interval when their values change meaningfully. | Character vector of variable names that exist in the standardized observation table (e.g., `"sbp"`). Used together with `segment_rules`. |
+| `segment_rules` | The rule(s) defining what counts as a “meaningful change” for segmentation. | Built using helpers such as `segment_bins()`, `segment_eps()`, `segment_flip()`, and combined with `segment_rules_combine()`. In this vignette, `segment_bins(sbp = c(-Inf, 120, 140, Inf))` starts a new interval when SBP crosses the specified bins. |
+| `candidate_times` | Where Prepare should look for candidate cut points for segmentation. | In this vignette we use `"groups_or_vars"` to allow cut points from measurement times (`split_on_groups`) and from value-based triggers (`segment_on_vars` + `segment_rules`). (Other options exist; the vignette focuses on the common “new measurements and meaningful changes” pattern.) |
+| `t0_strategy` | How the first interval start (`t0`) is chosen for each patient. | Here we use `"followup_start"`, meaning the first interval begins at the patient’s follow-up start time (defined in the `followup` table). This keeps the interval definition tied to the study’s observation window. |
+| `death_col` | How death is represented for censoring/truncation behavior. | Name of the column in the `followup` table that contains death time (in model time units). Supplying this allows `build_ttv_event_process()` to enforce “no risk time after death” consistently. |
+
+
+```{r event_process_settings}
+event_settings <- spec_event_process(
+  event_types     = c("MI", "stroke", "death"),
+  split_on_groups = "vitals",
+  segment_on_vars = "sbp",
+  segment_rules   = segment_bins(sbp = c(-Inf, 120, 140, Inf)),
+  candidate_times = "groups_or_vars",
+  t0_strategy     = "followup_start",
+  death_col       = "death_time"
+)
+
+event_settings
+```
+
+
+### Build an event-process TTV dataset
+
+We now build the event-process TTV dataset.  
+This produces start–stop intervals (`t0`, `t1`, `deltat`) and an outcome label for each interval.
+
+```{r build_ttv_event_process}
+ttv_major <- build_ttv_event_process(
+  events       = events,
+  observations = obs,
+  splits       = splits,
+  spec         = event_settings,
+  followup     = followup,
+  ctx          = ctx
+)
+
+ttv_major |>
+  dplyr::filter(patient_id %in% example_ids) |>
+  head(12) |>
+  knitr::kable()
+```
+
+
+### Attaching covariates at interval start
+
+When needed, we reconstruct patient state at the beginning of each interval (`t0`) using observed history.
+
+```{r state_at_t0}
+anchors <- ttv_major |>
+  dplyr::select(patient_id, t0)
+
+state_t0 <- reconstruct_state_at(
+  anchors      = anchors,
+  observations = obs,
+  vars         = c("sbp", "dbp", "ldl", "hdl"),
+  lookback     = 52,
+  staleness    = 52
+)
+
+ttv_major_cov <- ttv_major |>
+  dplyr::left_join(
+    state_t0 |>
+      dplyr::select(patient_id, t0, sbp, dbp, ldl, hdl),
+    by = c("patient_id", "t0")
+  )
+
+ttv_major_cov |>
+  dplyr::filter(patient_id %in% example_ids) |>
+  head(8) |>
+  knitr::kable()
+```
+
+
+## B) Blood-pressure transitions via build_ttv_state()
+
+Our second prediction task models **how blood pressure evolves between measurements**.
+
+`build_ttv_state()` automatically creates one row per transition between consecutive observations in the specified group (`vitals`), reconstructing predictors at the start of each interval. This is a common pattern when modeling state evolution, and `build_ttv_state()` handles the details of interval construction, state reconstruction, and train/test/validation splitting in one step.
+
+Before building the blood-pressure transition dataset, it is worth clarifying two parameters that control how predictors are reconstructed.
+
+In `build_ttv_state()`, predictors are reconstructed *at the start of each interval (`t0`)* for every transition row (the anchors that define intervals come from consecutive observation times in the `outcome_group`, but reconstruction is done specifically at `t0`). The `lookback` parameter defines how far back in time (in the model’s time unit) Prepare is allowed to search for prior observations when reconstructing predictors at `t0` (only observations with time ≥ `t0 - lookback` are eligible). The `staleness` parameter defines how old a carried-forward value is allowed to be before it is treated as missing. Together, these settings make the reconstruction rule explicit: use the most recent prior value within the lookback window, but only if it is sufficiently recent to be considered meaningful.
+
+```
+
+
+```{r build_ttv_state}
+ttv_bp <- build_ttv_state(
+  observations   = obs,
+  splits         = splits,
+  outcome_group  = "vitals",
+  outcome_vars   = c("sbp", "dbp"),
+  predictor_vars = c("sbp", "dbp", "ldl", "hdl"),
+  followup       = followup,
+  death_col      = "death_time",
+  lookback       = 52,    ### these are defined in the 
+  staleness      = 52,    ### model's time_unit (weeks)
+  row_policy     = "drop_incomplete"
+)
+
+ttv_bp |>
+  dplyr::filter(patient_id %in% example_ids) |>
+  head(10) |>
+  knitr::kable()
+```
+
+At this point we have two TTV datasets derived from the same EHR tables, using the same Prepare workflow, but supporting different embedded prediction tasks.

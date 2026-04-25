@@ -308,7 +308,7 @@ horizon_years <- 2
 # P1
 pid1 <- entity_low_risk$id
 init1 <- entity_low_risk; init1$id <- NULL
-p1 <- fluxCore::new_entity(
+p1 <- fluxCore::Entity$new(
   init = init1,
   schema = schema,
   entity_type = "entity",
@@ -322,7 +322,7 @@ traj1$entity_id <- pid1
 # P2
 pid2 <- entity_high_risk$id
 init2 <- entity_high_risk; init2$id <- NULL
-p2 <- fluxCore::new_entity(
+p2 <- fluxCore::Entity$new(
   init = init2,
   schema = schema,
   entity_type = "entity",

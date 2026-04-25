@@ -67,14 +67,36 @@ tryCatch({
   pass(sprintf("Prepared splits=%d, events=%d, observations=%d", nrow(spl), nrow(ev), nrow(obs)))
 
   step("Core smoke: construct schema, engine, and entities")
-  schema <- default_entity_schema()
-  schema$age <- list(type = "continuous", default = 50, coerce = as.numeric)
-  schema$miles_to_work <- list(type = "continuous", default = 8, coerce = as.numeric)
+  schema <- list(
+    route_zone = list(
+      type = "categorical",
+      levels = c("urban", "suburban", "rural"),
+      default = "urban",
+      coerce = as.character
+    ),
+    workload = list(type = "continuous", default = 0, coerce = as.numeric)
+  )
 
-  eng <- Engine$new(provider = PackageProvider$new(), model_spec = list(name = "default"))
+  bundle <- list(
+    time_spec = time_spec(unit = "hours"),
+    event_catalog = c("VISIT", "RUN_END"),
+    terminal_events = "RUN_END",
+    propose_events = function(entity, ctx = NULL, process_ids = NULL, current_proposals = NULL) {
+      list(
+        visit = list(time_next = entity$last_time + 1, event_type = "VISIT"),
+        end = list(time_next = 3, event_type = "RUN_END")
+      )
+    },
+    transition = function(entity, event, ctx = NULL) {
+      if (!identical(event$event_type, "VISIT")) return(list())
+      list(workload = as.numeric(entity$as_list("workload")$workload) + 1)
+    },
+    stop = function(entity, event, ctx = NULL) identical(event$event_type, "RUN_END")
+  )
+  eng <- Engine$new(provider = list(load = function(model_spec = NULL, ...) bundle))
   ents <- list(
-    e1 = new_entity(init = list(alive = TRUE, age = 50, miles_to_work = 8), schema = schema),
-    e2 = new_entity(init = list(alive = TRUE, age = 55, miles_to_work = 5), schema = schema)
+    e1 = Entity$new(init = list(route_zone = "urban", workload = 0), schema = schema),
+    e2 = Entity$new(init = list(route_zone = "suburban", workload = 1), schema = schema)
   )
   pass(sprintf("Engine + %d entities created", length(ents)))
 
@@ -84,7 +106,7 @@ tryCatch({
     entities = ents,
     times = c(0, 1, 2),
     S = 2,
-    vars = c("alive", "age"),
+    vars = c("workload"),
     return = "object",
     backend = "none"
   )
@@ -96,7 +118,7 @@ tryCatch({
 
   step("Validation smoke: build observation grid and compare predicted risk")
   obs_grid <- build_obs_grid(
-    vars = list(data.frame(entity_id = c("e1", "e1", "e2"), time = c(0, 1, 0), alive = c(TRUE, TRUE, TRUE))),
+    vars = list(data.frame(entity_id = c("e1", "e1", "e2"), time = c(0, 1, 0), workload = c(0, 1, 1))),
     events = data.frame(entity_id = c("e1"), event_time = c(1), event_type = c("VISIT")),
     times = c(0, 1, 2),
     t0 = 0

@@ -35,30 +35,70 @@ For downstream linking in a HIPAA-conscious way, a `Entity` may also carry an op
 library(fluxCore)
 set.seed(1)
 
-schema <- default_entity_schema()
+schema <- list(
+  route_zone = list(
+    type = "categorical",
+    levels = c("urban", "suburban", "rural"),
+    default = "urban",
+    coerce = as.character
+  )
+)
 
 # Extend schema without changing Entity/Engine code:
-schema$bmi <- list(default = 28, coerce = as.numeric, validate = function(x) length(x) == 1L && (is.na(x) || x > 0))
+schema$battery_pct <- list(
+  type = "continuous",
+  default = 100,
+  coerce = as.numeric,
+  validate = function(x) length(x) == 1L && (is.na(x) || (x >= 0 && x <= 100))
+)
+schema$payload_kg <- list(
+  type = "continuous",
+  default = 0,
+  coerce = as.numeric,
+  validate = function(x) length(x) == 1L && (is.na(x) || x >= 0)
+)
+
+toy_bundle <- list(
+  time_spec = time_spec(unit = "hours"),
+  propose_events = function(entity, ctx = NULL, process_ids = NULL, current_proposals = NULL) {
+    list(dispatch = list(time_next = entity$last_time + 1, event_type = "dispatch"))
+  },
+  transition = function(entity, event, ctx = NULL) {
+    if (!identical(event$event_type, "dispatch")) return(list())
+    list(
+      payload_kg = max(0, as.numeric(entity$as_list("payload_kg")$payload_kg) + stats::rnorm(1, mean = 1, sd = 0.3)),
+      battery_pct = max(0, as.numeric(entity$as_list("battery_pct")$battery_pct) - 4)
+    )
+  },
+  stop = function(entity, event, ctx = NULL) entity$last_time >= 6,
+  observe = function(entity, event, ctx = NULL) {
+    s <- entity$as_list(c("route_zone", "battery_pct", "payload_kg"))
+    data.frame(
+      time = entity$last_time,
+      event_type = event$event_type,
+      route_zone = s$route_zone,
+      battery_pct = s$battery_pct,
+      payload_kg = s$payload_kg
+    )
+  }
+)
 
 p <- Entity$new(
-  init = list(age = 55, miles_to_work = 10, bmi = 31),
+  init = list(route_zone = "urban", battery_pct = 100, payload_kg = 0),
   schema = schema,
-  entity_type = "entity",
+  entity_type = "courier",
   time0 = 0
 )
 
-prov <- PackageProvider$new()
-
 eng <- Engine$new(
-  provider   = prov,
-  model_spec = list(name = "default")  # selects default_model_bundle()
+  provider = list(load = function(model_spec = NULL, ...) toy_bundle)
 )
 
 out <- eng$run(p, max_events = 200, return_observations = TRUE)
 
 tail(out$events, 6)
 tail(out$observations, 6)
-out$entity$state(c("age", "miles_to_work", "bmi"))
+out$entity$state(c("route_zone", "battery_pct", "payload_kg"))
 ```
 
 
@@ -67,9 +107,13 @@ out$entity$state(c("age", "miles_to_work", "bmi"))
 ```{r}
 entities <- lapply(1:4, function(i) {
   Entity$new(
-    init = list(age = 45 + i, miles_to_work = 10),
+    init = list(
+      route_zone = c("urban", "suburban", "rural", "urban")[i],
+      battery_pct = 100 - 5 * i,
+      payload_kg = i - 1
+    ),
     schema = schema,
-    entity_type = "entity",
+    entity_type = "courier",
     time0 = 0
   )
 })
@@ -91,33 +135,41 @@ head(batch$index)
 ## Policy / intervention layering
 
 ```{r}
-# Example: add an intervention flag after time >= 2 (requires schema include tx_on)
+# Example: add a priority mode after time >= 2 (requires schema include priority_mode)
 schema2 <- schema
-schema2$tx_on <- list(default = 0, coerce = as.integer, validate = function(x) x %in% c(0L,1L))
+schema2$priority_mode <- list(
+  type = "categorical",
+  levels = c("normal", "surge"),
+  default = "normal",
+  coerce = as.character
+)
 
 p2 <- Entity$new(
-  init = list(age = 55, miles_to_work = 10, tx_on = 0),
+  init = list(
+    route_zone = "urban",
+    battery_pct = 100,
+    payload_kg = 0,
+    priority_mode = "normal"
+  ),
   schema = schema2,
-  entity_type = "entity",
+  entity_type = "courier",
   time0 = 0
 )
 
-baseline <- default_model_bundle()
+baseline <- toy_bundle
 
 policy <- list(
-  transition = function(entity, event_type, time_next, ctx, baseline_changes = NULL) {
-    if (entity$last_time >= 2) return(list(tx_on = 1L))
+  transition = function(entity, event, ctx = NULL, baseline_changes = NULL) {
+    if (entity$last_time >= 2) return(list(priority_mode = "surge"))
     NULL
   }
 )
 
 bundle2 <- compose_bundles(baseline, policy)
 
-# Build an engine using a custom registry entry
-prov2 <- PackageProvider$new(registry = list(composed = function() bundle2))
-eng2 <- Engine$new(provider = prov2, model_spec = list(name = "composed"))
+eng2 <- Engine$new(provider = list(load = function(model_spec = NULL, ...) bundle2))
 
 out2 <- eng2$run(p2, max_events = 30)
 tail(out2$events, 5)
-out2$entity$state(c("age","tx_on"))
+out2$entity$state(c("route_zone", "battery_pct", "priority_mode"))
 ```

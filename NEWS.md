@@ -1,5 +1,12 @@
 # flux ecosystem news
 
+## 1.9.0
+
+- Coordinated ecosystem release alignment to version 1.9.0 across the super-repo and package subrepos.
+- fluxCore API hardening: removed implicit runtime defaults (no package-level default schema/bundle), made `PackageProvider` require explicit registry, and migrated internal defaults to test fixtures.
+- Documentation cleanup: removed legacy constructor/default references, refreshed urban-delivery examples in core docs/tutorials, and aligned orchestration/model-template wording with optional lifecycle semantics.
+- Cross-package test fixtures now avoid reaching into fluxCore internals for default schema helpers.
+
 ## 1.8.1
 
 - Targeted patch release for two subrepos:

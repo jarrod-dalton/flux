@@ -1,0 +1,530 @@
+---
+title: "patientSim: an ecosystem for process-explicit, patient-level simulation"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{patientSim: an ecosystem for process-explicit, patient-level simulation}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4
+)
+set.seed(1)
+```
+
+## What problem is this ecosystem trying to solve?
+
+Electronic health records (EHRs) are not a clean spreadsheet with a tidy baseline and a neat follow-up schedule.
+They are a **tangled timeline**: labs on irregular days, office visits whenever someone shows up, and clinical events that can pre-empt everything.
+
+If you model EHR data as if it lived on a single clock, you usually end up choosing one of two compromises:
+
+- **Over-discretize** time (fixed cycles, forced regularity), or
+- **Over-simplify** processes (one outcome at a time, one “time-to-event” lens)
+
+The *patientSim* ecosystem exists to make a different compromise:
+
+> Be explicit about **multiple event processes** unfolding within a patient, each with its own tempo, and let you view the *same* raw data through multiple **lenses** that match the modeling task.
+
+A second, equally important choice: *patientSim* is **model-first**.
+You define the key components of your model **before** you look at any specific dataset, so teams can focus on mechanisms and co-evolution over time, rather than isolated relationships among observed indicators.
+
+### A quick contrast
+
+| Orientation | Typical first question | Typical pitfall |
+|---|---|---|
+| Data-first | “What associations are in this dataset?” | The dataset defines the model, implicitly |
+| Model-first (patientSim) | “What processes must exist to generate these data?” | Over-specifying too early; mitigate by iterating from toy → fitted components |
+
+## Multiple event processes, one patient
+
+Here’s a simple mental model we’ll reuse throughout the vignettes.
+
+- **Labs**: irregular and often frequent (a *faster* event process)
+- **Office visits**: irregular but less frequent (a *medium* event process)
+- **Clinical events**: hospitalizations, MI, stroke, death (a *slower* event process)
+
+```{r process-figure, echo=FALSE}
+plot(
+  x = c(0, 10), y = c(0, 10), type = "n",
+  xaxt = "n", yaxt = "n", xlab = "", ylab = "",
+  main = "Three co-existing processes (illustrative)"
+)
+axis(1, at = 0:10, labels = 0:10)
+text(0.5, 8.5, "Labs", pos = 4)
+segments(1, 8.2, 9.5, 8.2)
+points(c(2, 3.2, 4.8, 6.1, 8.7), rep(8.2, 5), pch = 16)
+
+text(0.5, 5.5, "Office visits", pos = 4)
+segments(1, 5.2, 9.5, 5.2)
+points(c(2.5, 6.8, 9.0), rep(5.2, 3), pch = 15)
+
+text(0.5, 2.5, "Clinical events", pos = 4)
+segments(1, 2.2, 9.5, 2.2)
+points(c(7.3), 2.2, pch = 4, cex = 1.5, lwd = 2)
+text(7.4, 2.6, "MI", pos = 4)
+```
+
+The ecosystem is built around the idea that you should be able to:
+
+1. **Specify** these processes explicitly (what counts as an event, what anchors time)
+2. **Prepare** model training/test/validation (**TTV**) tables from raw-ish EHR data under one or more lenses
+3. **Simulate** trajectories with transparent state updates and event rules
+4. **Summarize** results and **validate forecast accuracy** in different ways without changing the underlying simulated patient histories
+5. **Orchestrate** multiple models (for example, a chronic disease model plus a within-hospitalization model) over a single patient time axis
+
+## Ecosystem Components
+
+The ecosystem is modular by design: each package has a narrow job and an explicit contract.
+
+| Component | Job (one sentence) |
+|---|---|
+| patientSimCore | Owns simulation “truth”: timekeeping, patient state, event logs, and the engine that runs a model |
+| patientSimPrepare | Transforms raw longitudinal inputs into model training/test/validation (**TTV**) tables (often under multiple lenses) |
+| patientSimForecast | Read-only summaries and reporting views of simulated patient histories |
+| patientSimValidation | Evaluates simulated vs observed with explicit masks and denominators |
+| patientSimOrchestrate | Coordinates scenario runs and comparisons across bundles, or composes multiple bundles over one patient timeline |
+| patientSimModelTemplate | A starting point for creating new model packages that follow ecosystem conventions |
+| patientSimASCVD | A didactic, worked example that ties the ecosystem together |
+
+## Example Model: Cardiovascular Disease
+
+In this package, we’ll use a model for **atherosclerotic cardiovascular disease (ASCVD)** as a primary teaching example.
+
+In this vignette, we will keep the example **self-contained** and intentionally “toy”:
+we’ll define the core model components directly in the vignette so you can see their structure.
+
+Later vignettes will show how to replace these toy components with models trained from EHR-derived tables (and how to validate and compare scenarios).
+
+### 1) Schema: what exists in the model world
+
+A schema is the vocabulary of the model: state variables, event types, and basic conventions.
+
+
+
+
+
+
+
+```{r schema}
+library(patientSimCore)
+
+# Best practice: declare the model time unit up front.
+# We do this in a shared "context" object (ctx), which is passed into the Engine
+# at run-time. Downstream packages can use ctx$time$unit to label and sanity-check
+# time-related quantities.
+ctx <- patientSimCore::ps_set_time_unit(ctx = list(), unit = "years")
+
+# patientSimCore schemas are named lists of variable descriptors.
+# Each variable has at least:
+#   - default: baseline value when init does not provide it
+#   - type: used by downstream summary/validation code
+# and may also include:
+#   - coerce / validate
+#   - blocks: panel membership (e.g., BP, lipids)
+schema <- list(
+  age = list(
+    type     = "continuous",
+    default  = 50,
+    coerce   = as.numeric,
+    validate = function(x) length(x) == 1L && (is.na(x) || (is.finite(x) && x >= 0))
+  ),
+
+  sbp = list(
+    type     = "continuous",
+    default  = 120,
+    coerce   = as.numeric,
+    validate = function(x) length(x) == 1L && (is.na(x) || is.finite(x)),
+    blocks   = "bp"
+  ),
+  dbp = list(
+    type     = "continuous",
+    default  = 80,
+    coerce   = as.numeric,
+    validate = function(x) length(x) == 1L && (is.na(x) || is.finite(x)),
+    blocks   = "bp"
+  ),
+
+  ldl = list(
+    type     = "continuous",
+    default  = 120,
+    coerce   = as.numeric,
+    validate = function(x) length(x) == 1L && (is.na(x) || is.finite(x)),
+    blocks   = "lipids"
+  ),
+  hdl = list(
+    type     = "continuous",
+    default  = 50,
+    coerce   = as.numeric,
+    validate = function(x) length(x) == 1L && (is.na(x) || is.finite(x)),
+    blocks   = "lipids"
+  ),
+
+  diabetes = list(
+    type     = "binary",
+    levels   = c("0","1"),
+    default  = FALSE,
+    coerce   = as.logical,
+    validate = function(x) length(x) == 1L && (is.na(x) || is.logical(x))
+  ),
+  smoker = list(
+    type     = "binary",
+    levels   = c("0","1"),
+    default  = FALSE,
+    coerce   = as.logical,
+    validate = function(x) length(x) == 1L && (is.na(x) || is.logical(x))
+  )
+)
+
+# Optional: let Core check that this looks like a schema.
+ps_schema_validate(schema)
+
+# Show the shape, without printing a wall of text.
+str(schema, max.level = 1)
+schema$age
+schema$ldl
+```
+
+### 2) ModelBundle: a portable model artifact
+
+A **ModelBundle** is a single object that contains everything needed to simulate:
+it proposes candidate next events for one or more processes, applies state updates, and decides when to stop.
+
+patientSimCore expects a bundle with (at minimum):
+
+- `propose_events(patient, ctx, ...)` (multiple processes can propose an event)
+- `transition(patient, event, ctx)` (update state given the selected event)
+- `stop(patient, event, ctx)` (terminal logic)
+- `observe(patient, event, ctx)` *(optional)*: what to record after each event (Core will still maintain the event log either way)
+- `refresh_rules(...)` *(optional)*: tells the engine which processes need to re-propose their next event after changes
+
+You’ll see a `ctx` argument threaded through these functions. `ctx` is just a run-level “context” list:
+it’s how you pass shared settings like the time unit (years vs days) and optional model parameters into the simulation.
+
+We’ll build that list **right here**, one component at a time.
+
+One pragmatic note: `observe()` is optional because Core always maintains an internal event log.
+If your bundle doesn’t provide `observe()`, you can still simulate, but you won’t get a user-friendly per-event table back.
+
+Before we start, one vocabulary note:
+
+- A **rate** is “how often something happens” (for example, 3 lab draws per year).
+- A **hazard** is a rate that can depend on the patient’s current state (for example, MI risk increasing with age and LDL).
+
+In this toy model we use both ideas, but we keep the numbers intentionally tame so the output stays readable.
+
+
+
+
+
+
+```{r hazards}
+# We start by defining how frequently each process proposes events.
+# Everything below is intentionally toy and tuned only for readable output.
+
+# Helper: exponential waiting time given a rate per year
+rexp_dt <- function(rate_per_year) stats::rexp(1, rate = rate_per_year)
+
+# --- (a) Process rates / hazards (toy, NOT clinical) ---
+# Labs are a faster measurement process; office visits are a medium process.
+rate_labs   <- function(state) 3.0
+rate_office <- function(state) 1.0
+
+# Clinical events are modeled as a slower process.
+# These hazards are intentionally tiny here so we get readable trajectories.
+hazard_mi <- function(state) {
+  lin <- -14.8 + 0.03 * (state$age - 50) + 0.010 * (state$sbp - 120) + 0.008 * (state$ldl - 120) +
+    0.7 * as.integer(state$diabetes) + 0.6 * as.integer(state$smoker)
+  exp(lin)
+}
+hazard_stroke <- function(state) {
+  lin <- -15.1 + 0.03 * (state$age - 50) + 0.012 * (state$sbp - 120) + 0.004 * (state$ldl - 120) +
+    0.6 * as.integer(state$diabetes) + 0.4 * as.integer(state$smoker)
+  exp(lin)
+}
+hazard_hosp <- function(state) {
+  lin <- -15.0 + 0.02 * (state$age - 50) + 0.006 * (state$sbp - 120) + 0.004 * (state$ldl - 120)
+  exp(lin)
+}
+hazard_death <- function(state) {
+  lin <- -15.6 + 0.04 * (state$age - 50) + 0.003 * (state$sbp - 120) + 0.002 * (state$ldl - 120)
+  exp(lin)
+}
+```
+
+Now we define the first required ModelBundle component: **`propose_events()`**.
+
+Think of this as the “calendar clerk” for each process. Each process proposes its next event time, and Core will pick whichever happens first.
+
+One small detail that matters later: each proposal carries a `process_id`.
+That ID is how Core keeps track of “which process proposed what” (for example, labs vs office visits),
+which in turn lets you write selective refresh rules and process-specific summaries.
+
+```{r propose_events}
+propose_events <- function(patient, ctx = NULL, process_ids = NULL, current_proposals = NULL) {
+  t0 <- patient$last_time
+  s  <- patient$as_list(c("age","sbp","dbp","ldl","hdl","diabetes","smoker"))
+
+  proposals <- list()
+
+  pid_labs <- "01_labs"
+  if (is.null(process_ids) || pid_labs %in% process_ids) {
+    proposals[[pid_labs]] <- list(
+      process_id = pid_labs,
+      time_next  = t0 + rexp_dt(rate_labs(s)),
+      event_type = "LAB"
+    )
+  }
+
+  pid_office <- "02_office"
+  if (is.null(process_ids) || pid_office %in% process_ids) {
+    proposals[[pid_office]] <- list(
+      process_id = pid_office,
+      time_next  = t0 + rexp_dt(rate_office(s)),
+      event_type = "OFFICE"
+    )
+  }
+
+  pid_clin <- "03_clinical"
+  if (is.null(process_ids) || pid_clin %in% process_ids) {
+    t_mi   <- rexp_dt(hazard_mi(s))
+    t_st   <- rexp_dt(hazard_stroke(s))
+    t_hosp <- rexp_dt(hazard_hosp(s))
+    t_dx   <- rexp_dt(hazard_death(s))
+
+    dt <- min(t_mi, t_st, t_hosp, t_dx)
+    et <- c("MI","STROKE","HOSP","DEATH")[which.min(c(t_mi, t_st, t_hosp, t_dx))]
+
+    proposals[[pid_clin]] <- list(
+      process_id = pid_clin,
+      time_next  = t0 + dt,
+      event_type = et
+    )
+  }
+
+  proposals
+}
+```
+
+Next is **`transition()`**. This is where the model updates state *after* the realized event.
+
+A key point: age updates deterministically with elapsed time, but risk factors only change when an event implies new information (labs update lipids; office visits update blood pressure).
+
+```{r transition}
+transition <- function(patient, event, ctx = NULL) {
+  # Age updates deterministically from the model time unit (years in this vignette).
+  dt <- as.numeric(event$time_next - patient$last_time)
+
+  s <- patient$as_list(c("age","sbp","dbp","ldl","hdl","diabetes","smoker"))
+
+  changes <- list(age = s$age + dt)
+
+  # Event-conditional updates. (Toy measurement dynamics, not clinical.)
+  if (identical(event$event_type, "LAB")) {
+    changes$ldl <- max(30,  s$ldl + stats::rnorm(1, mean = 0, sd = 6))
+    changes$hdl <- max(10,  s$hdl + stats::rnorm(1, mean = 0, sd = 3))
+  }
+
+  if (identical(event$event_type, "OFFICE")) {
+    changes$sbp <- max(60,  s$sbp + stats::rnorm(1, mean = 0, sd = 5))
+    changes$dbp <- max(40,  s$dbp + stats::rnorm(1, mean = 0, sd = 3))
+  }
+
+  changes
+}
+```
+
+The engine also needs a **`stop()`** function. Here we stop only on death.
+
+```{r stop}
+stop <- function(patient, event, ctx = NULL) {
+  identical(event$event_type, "DEATH")
+}
+```
+
+After each event, Core asks the model what it wants to **record**. That’s `observe()`.
+
+```{r observe}
+observe <- function(patient, event, ctx = NULL) {
+  s <- patient$as_list(c("age","sbp","dbp","ldl","hdl","diabetes","smoker"))
+  data.frame(
+    time       = patient$last_time,
+    process_id = event$process_id,
+    event_type = event$event_type,
+    age        = s$age,
+    sbp        = s$sbp,
+    dbp        = s$dbp,
+    ldl        = s$ldl,
+    hdl        = s$hdl,
+    diabetes   = s$diabetes,
+    smoker     = s$smoker
+  )
+}
+```
+
+Finally, **refresh rules** tell Core which processes should “rethink their next proposal” after an event happens.
+
+In this vignette we keep it simple and refresh everything after every event.
+Later vignettes show selective refresh rules (for example, simulated time-to-hospitalization doesn’t need to refresh after every lab draw).
+
+```{r refresh_rules}
+refresh_rules <- function(patient, last_event, changes, ctx = NULL) {
+  "ALL"
+}
+```
+
+Now we can assemble the ModelBundle as a plain list.
+
+```{r bundle}
+bundle <- list(
+  propose_events = propose_events,
+  transition     = transition,
+  stop           = stop,
+  observe        = observe,
+  refresh_rules  = refresh_rules
+)
+
+names(bundle)
+```
+
+
+
+
+### 3) Running the bundle with patientSimCore’s Engine
+
+A quick note on **providers**: Core runs simulations by asking a *provider* for a model bundle.
+
+In `patientSimCore`, a provider is any object with a `$load(model_spec, ...)` method.
+Core ships with a few provider styles:
+
+- `PackageProvider`: a user-defined in-memory registry (fully supported)
+- `FileProvider`: load bundles from R objects on disk (fully supported)
+- `MLflowProvider`: a scaffold for MLflow workflows (not yet exercised end-to-end)
+
+Here we use a `PackageProvider`, which is just a named registry that says:
+“if the engine asks for model **X**, call this builder function to produce its bundle.”
+
+Why a builder function (instead of storing `bundle` directly)? Because in real workflows you often want the provider to:
+
+- inject trained model artifacts into the bundle (loaded from disk, MLflow, etc.)
+- swap between fitted versions or scenarios
+- construct composite bundles on demand
+
+Now we wire the bundle into Core exactly the way the engine expects: via a provider.
+This keeps the lesson consistent with the Core vignette scaffold.
+
+```{r engine}
+# The registry maps a model "name" to a function that can build its ModelBundle.
+# Here, the builder simply returns the bundle we already constructed.
+prov <- PackageProvider$new(
+  registry = list(
+    # Minimal builder: ignore args and return the bundle we built above.
+    ascvd_toy = function(...) bundle
+  )
+)
+
+eng <- Engine$new(
+  provider   = prov,
+  model_spec = list(name = "ascvd_toy"),
+  ctx        = ctx
+)
+```
+### 4) Two patients, two trajectories
+
+We’ll simulate two patients with different risk profiles.
+This is enough to see how the structure works, without drowning in output.
+
+```{r patients}
+patient_low_risk <- list(
+  id = "P1",
+  age = 45,
+  sbp = 118,
+  dbp = 76,
+  ldl = 105,
+  hdl = 58,
+  diabetes = FALSE,
+  smoker = FALSE
+)
+
+patient_high_risk <- list(
+  id = "P2",
+  age = 68,
+  sbp = 152,
+  dbp = 92,
+  ldl = 165,
+  hdl = 38,
+  diabetes = TRUE,
+  smoker = TRUE
+)
+
+patients <- list(patient_low_risk, patient_high_risk)
+```
+
+```{r simulate}
+# Two patients, simulated for 2 years.
+# We'll cap max_events so output stays readable even if a rate is high.
+max_events <- 200
+horizon_years <- 2
+
+# P1
+pid1 <- patient_low_risk$id
+init1 <- patient_low_risk; init1$id <- NULL
+p1 <- patientSimCore::new_patient(init = init1, schema = schema, time0 = 0, event_type0 = "init")
+out1 <- eng$run(p1, max_events = max_events, max_time = horizon_years, return_observations = TRUE, ctx = ctx)
+traj1 <- out1$observations
+traj1$patient_id <- pid1
+
+# P2
+pid2 <- patient_high_risk$id
+init2 <- patient_high_risk; init2$id <- NULL
+p2 <- patientSimCore::new_patient(init = init2, schema = schema, time0 = 0, event_type0 = "init")
+out2 <- eng$run(p2, max_events = max_events, max_time = horizon_years, return_observations = TRUE, ctx = ctx)
+traj2 <- out2$observations
+traj2$patient_id <- pid2
+
+traj1
+traj2
+```
+
+A tiny summary:
+
+```{r summary}
+summarize_events <- function(traj) {
+  as.data.frame(table(traj$event_type), stringsAsFactors = FALSE)
+}
+
+list(
+  P1_events = summarize_events(traj1),
+  P2_events = summarize_events(traj2)
+)
+```
+
+## What you should take away
+
+At this point, you should have:
+
+- A clear mental model of **multiple event processes** (labs, visits, clinical events)
+- A sense of what a **schema** is (the vocabulary)
+- A sense of what a **ModelBundle** is (a portable container of components)
+- A concrete `transition()` function (the engine that moves a patient forward)
+
+And, importantly, you did *not* need any EHR tables yet.
+
+## Where we go next
+
+From here, the tutorial zooms in:
+
+- **Prepare basics:** how raw longitudinal inputs become model training/test/validation (TTV) tables
+- **Lenses:** multiple time partitions for fast/medium/slow processes from the same source data
+- **Training:** swap toy components for trained submodels fit from prepared EHR tables
+- **Forecasting:** estimate patient-level risk over fixed horizons via repeated simulation runs
+- **Validation:** explicit masks/denominators, calibration, and goodness-of-fit
+- **Orchestration:** coordinate scenario runs and compose multiple models over one patient timeline
