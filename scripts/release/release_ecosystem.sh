@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-VERSION="1.5.0"
+VERSION="1.10.0"
 TAG="v${VERSION}"
 OWNER="jarrod-dalton"
 EXECUTE=0

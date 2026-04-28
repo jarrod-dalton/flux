@@ -1,5 +1,3 @@
-# flux Ecosystem Super-Repo
-
 ![flux Ecosystem](./header_logo.png)
 
 [![Release](https://img.shields.io/github/v/release/jarrod-dalton/flux?display_name=tag)](https://github.com/jarrod-dalton/flux/releases)
@@ -92,7 +90,8 @@ make release-dry
 
 ## Release line
 
-- Current ecosystem release: `v1.8.0`
+- Current ecosystem release: `v1.10.0`
+- See the [GitHub releases page](https://github.com/jarrod-dalton/flux/releases) for full history.
 
 ## Book scaffold
 
