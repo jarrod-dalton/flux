@@ -1,5 +1,14 @@
 # flux ecosystem news
 
+## 1.10.0
+
+- **Expanded schema type system**: introduced 14 supported variable types (logical, binary, integer variants, numeric variants, probability, categorical, ordinal, string variants) with built-in validation strategies.
+- **Streamlined schema authoring**: added `set_schema()` helper function for simplified variable registration with automatic type-specific defaults (`coerce` and `default` values).
+- **Enhanced schema flexibility**: `default` and `coerce` fields are now optional; fluxCore automatically applies type-appropriate defaults when not specified.
+- **Backward compatibility**: maintained "continuous" type alias mapping to "numeric" for existing code.
+- **Updated documentation**: expanded schema specification docs and tutorial examples showcasing both manual and `set_schema()` workflows.
+- **Ecosystem alignment**: updated fluxForecast type validation, fluxOrchestrate schemas, and test fixtures across subrepos to support new type system.
+
 ## 1.9.0
 
 - Coordinated ecosystem release alignment to version 1.9.0 across the super-repo and package subrepos.
