@@ -5,8 +5,8 @@ set -euo pipefail
 # Default mode is dry-run (safe). Use --execute to perform git writes/pushes.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-VERSION="1.10.0"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+VERSION="1.10.1"
 TAG="v${VERSION}"
 OWNER="jarrod-dalton"
 EXECUTE=0

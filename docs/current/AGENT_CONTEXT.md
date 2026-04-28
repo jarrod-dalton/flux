@@ -14,7 +14,7 @@ systems in irregular time.
   `fluxValidation`, `fluxOrchestrate`, `fluxASCVD`, `fluxModelTemplate`)
 - `tests_ecosystem/`: cross-package integration harness
 - `docs/`: current docs, archived prompt corpus, release announcements, and book scaffold
-- `scripts/release/release_ecosystem.sh`: coordinated release helper
+- `resources/scripts/release/release_ecosystem.sh`: coordinated release helper
 
 ## Design priorities
 
@@ -33,10 +33,12 @@ systems in irregular time.
 
 ## Current release state
 
-- Ecosystem is released at `v1.10.0` across super-repo + all subrepos.
-- Release tags and GitHub releases for `v1.10.0` are published for:
-  `flux`, `fluxCore`, `fluxPrepare`, `fluxForecast`, `fluxValidation`,
-  `fluxOrchestrate`, `fluxASCVD`, and `fluxModelTemplate`.
+- Ecosystem is released at `v1.10.1` (super-repo, fluxCore, fluxForecast). The other 5 subrepos remain at `v1.10.0`; their dependency floors stay `(>= 1.10.0)`.
+- v1.10.1 is a coordinated patch tightening v1.10.0's headline schema features:
+  - fluxCore: removed `id_string` type, added `percent` type, rewrote `set_schema()` with hybrid `vars` syntax (string OR list spec per element) and explicit `overwrite` / `remove` controls.
+  - fluxForecast: `validate_forecast()` now delegates schema validation to `fluxCore::schema_validate()` (single source of truth; eliminated duplicated allow-list).
+  - Super-repo: `header_logo.png` and release/maintenance scripts moved under `resources/`; vestigial top-level `reports/` removed.
+- Release tags and GitHub releases for `v1.10.1` are published for: `flux`, `fluxCore`, `fluxForecast`. Other subrepos remain at their `v1.10.0` releases.
 - Resolved issue closures after `v1.10.0`:
   - `flux#8` (refresh_rules/proposal contract hardening)
   - `flux#9` (broken tutorial code)

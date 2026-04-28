@@ -69,26 +69,58 @@ schema$payload_kg <- list(
 The above illustrates how to build up a schema incrementally, which is useful when you have a large number of variables or want to define them in different parts of the code. However, if you have a simple model and want to create a schema in one step, the `set_schema` helper function provides a convenient shortcut.
 
 ```{r}
-schema <- set_schema(vars = c(
+quicker_schema <- set_schema(vars = list(
+  route_zone           = list(type = "categorical",
+                              levels = c("urban", "suburban", "rural")),
+  battery_pct          = "percent",
+  payload_kg           = list(type = "nonnegative_numeric", max = 20),
   deliveries_completed = "count",
-  prob_rain = "probability", 
-  courier_id = "id_string"
+  prob_rain            = "probability"
 ))
 ```
 
-This creates a fully validated schema with automatic type-specific defaults.
+This creates a fully validated schema with automatic type-specific defaults. The hybrid `vars` syntax accepts either a type-name string (e.g. `"count"`) or a full list spec (e.g. `list(type = "positive_numeric", max = 20)`) per variable, mixed freely in one call.
 
-You can also add to an existing schema:
+You can also extend or replace entries in an existing schema. By default, adding a variable that already exists is an error; pass `overwrite = TRUE` to replace it, or use `remove = ` to drop entries:
+
 ```{r}
-schema <- set_schema(vars = c(new_var = "numeric"), schema = schema, add = TRUE)
+quicker_schema <- set_schema(
+  vars = list(deliveries_completed = list(type = "count", max = 50)),
+  schema = quicker_schema,
+  overwrite = TRUE
+)
 ```
 
-Each state variable's `type` label gives fluxCore a default validation strategy. For a complete list of supported variable types and associated validation rules, see `subrepos/fluxCore/docs/schema_spec.md`.
-
-For example, `numeric` values must be numeric, `count` values must be non-negative integers, `probability` values must lie in [0,1], and `id_string` values must be non-empty alphanumeric/underscore identifiers. If you need behavior beyond the built-in rule for a given type, supply a custom `validate` function.
+Each state variable's `type` label gives fluxCore a default validation strategy. Built-in validators are intentionally permissive within each type's semantic — `count` enforces non-negative integer, `probability` enforces [0,1], `percent` enforces [0,100], etc. Use `min` / `max` (numeric types) or a custom `validate` function to tighten further. For a complete list of supported variable types and associated validation rules, see `subrepos/fluxCore/docs/schema_spec.md`.
 
 The `coerce` and `default` fields are optional; `set_schema` will set type-specific defaults if not provided (e.g., `as.numeric` for `numeric` types, `NA_real_` for `numeric` defaults). You can override these if needed.
 
+
+## Engine, ModelBundle, and ModelProvider
+
+With a schema in hand we can now build the rest of the simulation. fluxCore deliberately separates three concerns:
+
+- **`Entity`** — the *state*. Holds the current values of every schema variable, the sparse history of changes, the event log, and an optional `id`. It validates every update against the schema you just defined. The `Entity` knows nothing about *dynamics*.
+- **`ModelBundle`** — the *dynamics*. A plain named list of functions (and a `time_spec`) that together describe how the entity evolves: when events happen, how state changes when an event fires, when the simulation should stop, and what to record. It knows nothing about *where* it came from.
+- **`ModelProvider`** — the *source of bundles*. An object with a `$load(model_spec, ...)` method that returns a `ModelBundle`. Providers let you swap how a model is sourced (an in-memory list, a registered package model, a file on disk, a remote service) without touching the engine or the bundle itself. The standard production workflow is to author your model from the `fluxModelTemplate` skeleton and ship it as its own R package; the package then exposes a builder function that a `PackageProvider` can `load()` by name. Inline providers (shown below) are the minimal-ceremony path used for tutorials, scratch work, and tests.
+
+The **`Engine`** ties these together. At construction time it asks its provider to `load()` a bundle; thereafter `engine$run(entity)` executes a deterministic loop: propose candidate events → pick the earliest (with `process_id` lexicographic tie-break) → call `transition()` to compute state changes → `entity$update()` → optionally `observe()` → check `stop()` and `max_time` → refresh proposals as needed.
+
+A minimal `ModelBundle` therefore needs five things:
+
+| Field | Purpose |
+|---|---|
+| `time_spec` | The clock (units, calendar). Built with `time_spec(unit = ...)`. |
+| `propose_events(entity, ctx, process_ids, current_proposals)` | Returns a named list of candidate events, each with `time_next` and `event_type`. The names are the `process_id`s used for tie-breaking. |
+| `transition(entity, event, ctx)` | Returns a named list of state changes for the chosen event (or `list()` for a no-op). |
+| `stop(entity, event, ctx)` | Returns `TRUE` when the run should terminate. |
+| `observe(entity, event, ctx)` | Returns a one-row data frame of the variables you want recorded after each event. Optional — only used when `return_observations = TRUE`. |
+
+Bundles can also expose optional hooks (`init_entity`, `refresh_rules`, `event_catalog`, `params`, `sample_params`); we ignore them here.
+
+### A toy bundle
+
+Below is the smallest interesting bundle: a single process named `dispatch` that fires every hour, adds a noisy parcel of payload, and drains 4% of the battery. It stops at `time = 6` and records the schema-relevant fields after each event.
 
 ```{r}
 toy_bundle <- list(
@@ -105,7 +137,7 @@ toy_bundle <- list(
   },
   stop = function(entity, event, ctx = NULL) entity$last_time >= 6,
   observe = function(entity, event, ctx = NULL) {
-    s <- entity$as_list(c("route_zone", "battery_pct", "payload_kg", "deliveries_completed", "prob_rain", "courier_id"))
+    s <- entity$as_list(c("route_zone", "battery_pct", "payload_kg", "deliveries_completed", "prob_rain"))
     data.frame(
       time = entity$last_time,
       event_type = event$event_type,
@@ -113,22 +145,43 @@ toy_bundle <- list(
       battery_pct = s$battery_pct,
       payload_kg = s$payload_kg,
       deliveries_completed = s$deliveries_completed,
-      prob_rain = s$prob_rain,
-      courier_id = s$courier_id
+      prob_rain = s$prob_rain
     )
   }
 )
+```
 
+Notice that nothing in `toy_bundle` knows the schema directly — the bundle reads variables through `entity$as_list()` and writes them back via the named list returned by `transition()`. The engine will run those returned values through schema validation before they are committed to the entity.
+
+### Constructing the Entity
+
+The `Entity` is initialized with a starting state (one value per schema variable) and the schema we built above. The engine will reject any subsequent update that violates that schema.
+
+```{r}
 p <- Entity$new(
-  init = list(route_zone = "urban", battery_pct = 100, payload_kg = 0, deliveries_completed = 0L, prob_rain = 0.5, courier_id = "courier_001"),
-  schema = schema,
+  init = list(route_zone = "urban", battery_pct = 100, payload_kg = 0, deliveries_completed = 0L, prob_rain = 0.5),
+  schema = quicker_schema,
   entity_type = "courier",
   time0 = 0
 )
+```
 
-eng <- Engine$new(
-  provider = list(load = function(model_spec = NULL, ...) toy_bundle)
-)
+### Wiring it together: ModelProvider and Engine
+
+The `Engine` does not accept a bundle directly — it accepts a `ModelProvider` and asks the provider to `load()` a bundle for it. This indirection is what lets the same engine code drive a quick in-memory bundle (here) and a full package-backed model (in real projects) with no changes.
+
+A `ModelProvider` is just any object with a `$load(model_spec, ...)` method that returns a valid `ModelBundle`. The cheapest one we can write is a one-element list whose `load` function ignores its arguments and returns `toy_bundle`:
+
+```{r}
+toy_provider <- list(load = function(model_spec = NULL, ...) toy_bundle)
+```
+
+That is a complete, valid `ModelProvider`. It satisfies the same contract as `PackageProvider$new(registry = list(courier = build_courier_bundle))` would in a packaged model — the engine cannot tell the difference.
+
+With provider in hand, building and running the engine is mechanical:
+
+```{r}
+eng <- Engine$new(provider = toy_provider)
 
 out <- eng$run(p, max_events = 200, return_observations = TRUE)
 
@@ -136,6 +189,8 @@ tail(out$events, 6)
 tail(out$observations, 6)
 out$entity$state(c("route_zone", "battery_pct", "payload_kg"))
 ```
+
+`out$events` is the engine's authoritative event log; `out$observations` is whatever your `observe()` hook accumulated; and `out$entity` is the same `p` from above, now mutated with the post-run state.
 
 
 ## Batch simulation with global parameter draws
@@ -146,9 +201,11 @@ entities <- lapply(1:4, function(i) {
     init = list(
       route_zone = c("urban", "suburban", "rural", "urban")[i],
       battery_pct = 100 - 5 * i,
-      payload_kg = i - 1
+      payload_kg = i - 1,
+      deliveries_completed = 0L,
+      prob_rain = 0.5
     ),
-    schema = schema,
+    schema = quicker_schema,
     entity_type = "courier",
     time0 = 0
   )
@@ -172,7 +229,7 @@ head(batch$index)
 
 ```{r}
 # Example: add a priority mode after time >= 2 (requires schema include priority_mode)
-schema2 <- schema
+schema2 <- quicker_schema
 schema2$priority_mode <- list(
   type = "categorical",
   levels = c("normal", "surge"),
@@ -185,6 +242,8 @@ p2 <- Entity$new(
     route_zone = "urban",
     battery_pct = 100,
     payload_kg = 0,
+    deliveries_completed = 0L,
+    prob_rain = 0.5,
     priority_mode = "normal"
   ),
   schema = schema2,

@@ -1,5 +1,12 @@
 # flux ecosystem news
 
+## 1.10.1
+
+- **fluxCore patch**: `id_string` type removed; new `percent` type added; `set_schema()` rewritten with hybrid `vars` syntax and explicit `overwrite` / `remove` controls (replaces the previous `replace = ` / `add = ` flags). Supported type list is now 14 entries (correction to v1.10.0's "14 types" claim post `id_string` removal + `percent` addition).
+- **fluxForecast patch**: `validate_forecast()` now delegates schema validation to `fluxCore::schema_validate()`, eliminating the duplicated type allow-list. Dependency floor bumped to `fluxCore (>= 1.10.1)`.
+- **Super-repo cleanup**: `header_logo.png` moved to `resources/images/`; release and maintenance scripts moved to `resources/scripts/`. Vestigial top-level `reports/` directory removed.
+- **Tutorial 01 refresh**: `set_schema()` example now demonstrates the hybrid syntax (categorical via levels list, percent, positive_numeric with `max`, count, probability) and uses the result variable name `quicker_schema`.
+
 ## 1.10.0
 
 - **Expanded schema type system**: introduced 14 supported variable types (logical, binary, integer variants, numeric variants, probability, categorical, ordinal, string variants) with built-in validation strategies.

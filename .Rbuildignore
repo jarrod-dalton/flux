@@ -3,7 +3,7 @@
 ^\\.gitmodules$
 ^subrepos$
 ^tests_ecosystem$
-^scripts$
+^resources$
 ^docs$
 ^tutorials$
 ^Makefile$

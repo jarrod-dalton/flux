@@ -1,4 +1,4 @@
-![flux Ecosystem](./header_logo.png)
+![flux Ecosystem](./resources/images/header_logo.png)
 
 [![Release](https://img.shields.io/github/v/release/jarrod-dalton/flux?display_name=tag)](https://github.com/jarrod-dalton/flux/releases)
 [![Downloads](https://img.shields.io/github/downloads/jarrod-dalton/flux/total)](https://github.com/jarrod-dalton/flux/releases)
@@ -44,7 +44,7 @@ Reference/demo packages remain separate:
 
 ## What lives here
 
-- Release orchestration script: `scripts/release/release_ecosystem.sh`
+- Release orchestration script: `resources/scripts/release/release_ecosystem.sh`
 - Cross-package integration test harness: `tests_ecosystem/`
 - Shared docs/notes for the ecosystem: `docs/`
 - Git submodules for package repos (under `subrepos/`):
@@ -90,7 +90,7 @@ make release-dry
 
 ## Release line
 
-- Current ecosystem release: `v1.10.0`
+- Current ecosystem release: `v1.10.1`
 - See the [GitHub releases page](https://github.com/jarrod-dalton/flux/releases) for full history.
 
 ## Book scaffold
