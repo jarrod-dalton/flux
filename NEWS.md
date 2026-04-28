@@ -9,9 +9,9 @@
 - **Updated documentation**: expanded schema specification docs and tutorial examples showcasing both manual and `set_schema()` workflows.
 - **Ecosystem alignment**: updated fluxForecast type validation, fluxOrchestrate schemas, and test fixtures across subrepos to support new type system.
 
-## 1.9.0
+## 1.10.0
 
-- Coordinated ecosystem release alignment to version 1.9.0 across the super-repo and package subrepos.
+- Coordinated ecosystem release alignment to version 1.10.0 across the super-repo and package subrepos.
 - fluxCore API hardening: removed implicit runtime defaults (no package-level default schema/bundle), made `PackageProvider` require explicit registry, and migrated internal defaults to test fixtures.
 - Documentation cleanup: removed legacy constructor/default references, refreshed urban-delivery examples in core docs/tutorials, and aligned orchestration/model-template wording with optional lifecycle semantics.
 - Cross-package test fixtures now avoid reaching into fluxCore internals for default schema helpers.

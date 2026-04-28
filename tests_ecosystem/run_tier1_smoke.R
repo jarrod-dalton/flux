@@ -74,7 +74,7 @@ tryCatch({
       default = "urban",
       coerce = as.character
     ),
-    workload = list(type = "continuous", default = 0, coerce = as.numeric)
+    workload = list(type = "numeric", default = 0, coerce = as.numeric)
   )
 
   bundle <- list(

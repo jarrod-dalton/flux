@@ -244,8 +244,8 @@ schema <- list(
     default = "urban",
     coerce = as.character
   ),
-  sbp = list(type = "continuous", default = NA_real_, coerce = as.numeric),
-  battery_pct = list(type = "continuous", default = NA_real_, coerce = as.numeric)
+  sbp = list(type = "numeric", default = NA_real_, coerce = as.numeric),
+  battery_pct = list(type = "numeric", default = NA_real_, coerce = as.numeric)
 )
 
 spec_bp <- spec_state(

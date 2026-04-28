@@ -31,6 +31,27 @@ systems in irregular time.
   - trajectory logging for audit and ABM/RL compatibility
 - Super-repo organization and developer ergonomics improvements are ongoing.
 
+## Current release state
+
+- Ecosystem is released at `v1.10.0` across super-repo + all subrepos.
+- Release tags and GitHub releases for `v1.10.0` are published for:
+  `flux`, `fluxCore`, `fluxPrepare`, `fluxForecast`, `fluxValidation`,
+  `fluxOrchestrate`, `fluxASCVD`, and `fluxModelTemplate`.
+- Resolved issue closures after `v1.10.0`:
+  - `flux#8` (refresh_rules/proposal contract hardening)
+  - `flux#9` (broken tutorial code)
+  - `fluxCore#1` (schema type doc mismatch)
+
+## Next active issue
+
+- Immediate target: `fluxCore#2` (init state validation hardening + lower-friction
+  schema validator presets).
+- Plan comment posted in issue includes:
+  - explicit init validation semantics decision (strict vs permissive),
+  - built-in type presets + shared constraints (`allow_na`, `min/max`, `levels`),
+  - MVP vs follow-up scope split,
+  - tests + docs updates.
+
 ## Collaboration norms
 
 - Update docs and tests when changing scripts or contracts.

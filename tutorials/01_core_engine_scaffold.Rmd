@@ -29,12 +29,22 @@ When multiple processes propose events at the same `time_next`, the engine selec
 
 This means `process_id` is not just a label, it is part of the model's deterministic resolution policy. If your model has a preferred priority when ties occur, encode that priority into the `process_id` (for example, a zero-padded numeric prefix).
 
-For downstream linking in a HIPAA-conscious way, a `Entity` may also carry an optional single-column identifier `id` (default `NULL`). This is intended for *de-identified* tags (for example, a study-specific pseudonym), and packages may propagate it only if you supply it.
 
+An `Entity` may also carry an optional single-column identifier `id` (default `NULL`). 
+
+
+To begin, load the library.
 ```{r}
 library(fluxCore)
 set.seed(1)
+```
 
+The first task is to define a `schema` for the entity's state variables. The schema specifies the variable names, types, validation rules, and default values. The engine will enforce this schema at runtime, ensuring that state updates are valid and consistent. This separation of concerns allows you to focus on the dynamics in the transition function without worrying about low-level data validation.
+
+The `fluxCore` package provides a default schema specification format, but you can define your own as long as it follows the expected structure. Below, we show how to create a schema using default variable formats (each of which has a default validation strategy), and then how to define a custom schema manually if you need more control.
+
+```{r}
+# The schema is a list object with one entry per state variable. Each entry is itself a list with at least a `type` field, and optionally `levels`, `default`, `coerce`, and `validate` fields.
 schema <- list(
   route_zone = list(
     type = "categorical",
@@ -46,18 +56,41 @@ schema <- list(
 
 # Extend schema without changing Entity/Engine code:
 schema$battery_pct <- list(
-  type = "continuous",
+  type = "numeric",
   default = 100,
-  coerce = as.numeric,
-  validate = function(x) length(x) == 1L && (is.na(x) || (x >= 0 && x <= 100))
+  coerce = as.numeric
 )
 schema$payload_kg <- list(
-  type = "continuous",
+  type = "numeric",
   default = 0,
-  coerce = as.numeric,
-  validate = function(x) length(x) == 1L && (is.na(x) || x >= 0)
+  coerce = as.numeric
 )
+```
+The above illustrates how to build up a schema incrementally, which is useful when you have a large number of variables or want to define them in different parts of the code. However, if you have a simple model and want to create a schema in one step, the `set_schema` helper function provides a convenient shortcut.
 
+```{r}
+schema <- set_schema(vars = c(
+  deliveries_completed = "count",
+  prob_rain = "probability", 
+  courier_id = "id_string"
+))
+```
+
+This creates a fully validated schema with automatic type-specific defaults.
+
+You can also add to an existing schema:
+```{r}
+schema <- set_schema(vars = c(new_var = "numeric"), schema = schema, add = TRUE)
+```
+
+Each state variable's `type` label gives fluxCore a default validation strategy. For a complete list of supported variable types and associated validation rules, see `subrepos/fluxCore/docs/schema_spec.md`.
+
+For example, `numeric` values must be numeric, `count` values must be non-negative integers, `probability` values must lie in [0,1], and `id_string` values must be non-empty alphanumeric/underscore identifiers. If you need behavior beyond the built-in rule for a given type, supply a custom `validate` function.
+
+The `coerce` and `default` fields are optional; `set_schema` will set type-specific defaults if not provided (e.g., `as.numeric` for `numeric` types, `NA_real_` for `numeric` defaults). You can override these if needed.
+
+
+```{r}
 toy_bundle <- list(
   time_spec = time_spec(unit = "hours"),
   propose_events = function(entity, ctx = NULL, process_ids = NULL, current_proposals = NULL) {
@@ -72,19 +105,22 @@ toy_bundle <- list(
   },
   stop = function(entity, event, ctx = NULL) entity$last_time >= 6,
   observe = function(entity, event, ctx = NULL) {
-    s <- entity$as_list(c("route_zone", "battery_pct", "payload_kg"))
+    s <- entity$as_list(c("route_zone", "battery_pct", "payload_kg", "deliveries_completed", "prob_rain", "courier_id"))
     data.frame(
       time = entity$last_time,
       event_type = event$event_type,
       route_zone = s$route_zone,
       battery_pct = s$battery_pct,
-      payload_kg = s$payload_kg
+      payload_kg = s$payload_kg,
+      deliveries_completed = s$deliveries_completed,
+      prob_rain = s$prob_rain,
+      courier_id = s$courier_id
     )
   }
 )
 
 p <- Entity$new(
-  init = list(route_zone = "urban", battery_pct = 100, payload_kg = 0),
+  init = list(route_zone = "urban", battery_pct = 100, payload_kg = 0, deliveries_completed = 0L, prob_rain = 0.5, courier_id = "courier_001"),
   schema = schema,
   entity_type = "courier",
   time0 = 0

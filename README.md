@@ -1,4 +1,7 @@
 # flux Ecosystem Super-Repo
+
+![flux Ecosystem](./header_logo.png)
+
 [![Release](https://img.shields.io/github/v/release/jarrod-dalton/flux?display_name=tag)](https://github.com/jarrod-dalton/flux/releases)
 [![Downloads](https://img.shields.io/github/downloads/jarrod-dalton/flux/total)](https://github.com/jarrod-dalton/flux/releases)
 [![Ecosystem Tests](https://img.shields.io/badge/tests-3_tiers-brightgreen)](./tests_ecosystem/README.md)
