@@ -1,5 +1,11 @@
 # flux ecosystem news
 
+## 1.10.2
+
+- **fluxCore patch**: new `Engine$new(bundle = ...)` shortcut for inline model bundles. Removes the boilerplate `provider = list(load = function(...) bundle)` pattern from tutorials, scratch work, and tests. The `provider = ...` path is unchanged. See [GH issue #1](https://github.com/jarrod-dalton/flux/issues/1) for the broader API ergonomics conversation that surfaced this.
+- **Tutorial 01 polish**: vignette renamed to "Engine and ModelBundle scaffold"; both `Engine$new()` call sites use the new `bundle = ` shortcut; `ModelProvider` is now a forward-pointer aside.
+- Super-repo dependency floor on fluxCore bumped to `(>= 1.10.2)`. fluxForecast and the other subrepos are unaffected and remain at their v1.10.1 / v1.10.0 versions.
+
 ## 1.10.1
 
 - **fluxCore patch**: `id_string` type removed; new `percent` type added; `set_schema()` rewritten with hybrid `vars` syntax and explicit `overwrite` / `remove` controls (replaces the previous `replace = ` / `add = ` flags). Supported type list is now 14 entries (correction to v1.10.0's "14 types" claim post `id_string` removal + `percent` addition).

@@ -33,12 +33,15 @@ systems in irregular time.
 
 ## Current release state
 
-- Ecosystem is released at `v1.10.1` (super-repo, fluxCore, fluxForecast). The other 5 subrepos remain at `v1.10.0`; their dependency floors stay `(>= 1.10.0)`.
-- v1.10.1 is a coordinated patch tightening v1.10.0's headline schema features:
+- Ecosystem is released at `v1.10.2` (super-repo, fluxCore). fluxForecast remains at `v1.10.1`. The other 5 subrepos remain at `v1.10.0`; their dependency floors stay `(>= 1.10.0)`.
+- v1.10.2 is a focused fluxCore patch addressing an API ergonomics issue surfaced during v1.10.1 tutorial polish:
+  - fluxCore: new `Engine$new(bundle = ...)` shortcut for inline / in-memory bundles. Removes the `provider = list(load = function(...) bundle)` boilerplate that was the user's first encounter with fluxCore. Fully additive — `provider = ...` path unchanged.
+  - Tutorial 01 renamed to "Engine and ModelBundle scaffold"; both call sites use the new shortcut.
+- v1.10.1 was a coordinated patch tightening v1.10.0's headline schema features:
   - fluxCore: removed `id_string` type, added `percent` type, rewrote `set_schema()` with hybrid `vars` syntax (string OR list spec per element) and explicit `overwrite` / `remove` controls.
   - fluxForecast: `validate_forecast()` now delegates schema validation to `fluxCore::schema_validate()` (single source of truth; eliminated duplicated allow-list).
   - Super-repo: `header_logo.png` and release/maintenance scripts moved under `resources/`; vestigial top-level `reports/` removed.
-- Release tags and GitHub releases for `v1.10.1` are published for: `flux`, `fluxCore`, `fluxForecast`. Other subrepos remain at their `v1.10.0` releases.
+- Release tags and GitHub releases for `v1.10.2` are published for: `flux`, `fluxCore`. fluxForecast and other subrepos remain at their existing `v1.10.1` / `v1.10.0` releases.
 - Resolved issue closures after `v1.10.0`:
   - `flux#8` (refresh_rules/proposal contract hardening)
   - `flux#9` (broken tutorial code)

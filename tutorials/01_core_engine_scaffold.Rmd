@@ -1,9 +1,9 @@
 ---
-title: "Engine + ModelProvider scaffold"
+title: "Engine and ModelBundle scaffold"
 maturity: "validated"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Engine + ModelProvider scaffold}
+  %\VignetteIndexEntry{Engine and ModelBundle scaffold}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -15,10 +15,10 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 This vignette demonstrates the core architecture:
 
 - `Entity` holds mutable state, sparse history, and an event log.
-- `Engine` orchestrates the simulation **and materializes models** using a provider + model spec.
-- `ModelBundle` supplies the dynamics.
-- `ModelProviders` load bundles from different sources.
+- `ModelBundle` supplies the dynamics (when events happen, how state changes, when to stop, what to record).
+- `Engine` orchestrates the simulation by repeatedly proposing, picking, applying, and observing events.
 
+`fluxCore` also has a `ModelProvider` abstraction for sourcing bundles in production (registry-backed packages, files on disk, etc.); this tutorial uses the simpler direct `bundle =` constructor and defers providers to a later tutorial.
 
 ### Determinism, tie-breaking, and optional entity tags
 
@@ -96,15 +96,14 @@ Each state variable's `type` label gives fluxCore a default validation strategy.
 The `coerce` and `default` fields are optional; `set_schema` will set type-specific defaults if not provided (e.g., `as.numeric` for `numeric` types, `NA_real_` for `numeric` defaults). You can override these if needed.
 
 
-## Engine, ModelBundle, and ModelProvider
+## Engine and ModelBundle
 
-With a schema in hand we can now build the rest of the simulation. fluxCore deliberately separates three concerns:
+With a schema in hand we can now build the rest of the simulation. fluxCore deliberately separates two concerns at this level:
 
 - **`Entity`** — the *state*. Holds the current values of every schema variable, the sparse history of changes, the event log, and an optional `id`. It validates every update against the schema you just defined. The `Entity` knows nothing about *dynamics*.
-- **`ModelBundle`** — the *dynamics*. A plain named list of functions (and a `time_spec`) that together describe how the entity evolves: when events happen, how state changes when an event fires, when the simulation should stop, and what to record. It knows nothing about *where* it came from.
-- **`ModelProvider`** — the *source of bundles*. An object with a `$load(model_spec, ...)` method that returns a `ModelBundle`. Providers let you swap how a model is sourced (an in-memory list, a registered package model, a file on disk, a remote service) without touching the engine or the bundle itself. The standard production workflow is to author your model from the `fluxModelTemplate` skeleton and ship it as its own R package; the package then exposes a builder function that a `PackageProvider` can `load()` by name. Inline providers (shown below) are the minimal-ceremony path used for tutorials, scratch work, and tests.
+- **`ModelBundle`** — the *dynamics*. A plain named list of functions (and a `time_spec`) that together describe how the entity evolves: when events happen, how state changes when an event fires, when the simulation should stop, and what to record.
 
-The **`Engine`** ties these together. At construction time it asks its provider to `load()` a bundle; thereafter `engine$run(entity)` executes a deterministic loop: propose candidate events → pick the earliest (with `process_id` lexicographic tie-break) → call `transition()` to compute state changes → `entity$update()` → optionally `observe()` → check `stop()` and `max_time` → refresh proposals as needed.
+The **`Engine`** ties these together. You hand it a bundle; it then runs a deterministic loop on a given `Entity`: propose candidate events → pick the earliest (with `process_id` lexicographic tie-break) → call `transition()` to compute state changes → `entity$update()` → optionally `observe()` → check `stop()` and `max_time` → refresh proposals as needed.
 
 A minimal `ModelBundle` therefore needs five things:
 
@@ -117,6 +116,8 @@ A minimal `ModelBundle` therefore needs five things:
 | `observe(entity, event, ctx)` | Returns a one-row data frame of the variables you want recorded after each event. Optional — only used when `return_observations = TRUE`. |
 
 Bundles can also expose optional hooks (`init_entity`, `refresh_rules`, `event_catalog`, `params`, `sample_params`); we ignore them here.
+
+> *Aside on `ModelProvider`.* In production you typically don't author a bundle inline — you build it from the `fluxModelTemplate` skeleton, ship it as its own R package, and register it through a `ModelProvider` (e.g. `PackageProvider$new(registry = list(my_model = build_my_model))`). The `Engine` then asks the provider to `load()` a bundle by `model_spec`, which makes runs reproducible and swappable. We use the simpler direct path (`Engine$new(bundle = ...)`) for the rest of this tutorial; a forthcoming tutorial covers providers in full.
 
 ### A toy bundle
 
@@ -166,22 +167,12 @@ p <- Entity$new(
 )
 ```
 
-### Wiring it together: ModelProvider and Engine
+### Constructing the Engine and running
 
-The `Engine` does not accept a bundle directly — it accepts a `ModelProvider` and asks the provider to `load()` a bundle for it. This indirection is what lets the same engine code drive a quick in-memory bundle (here) and a full package-backed model (in real projects) with no changes.
-
-A `ModelProvider` is just any object with a `$load(model_spec, ...)` method that returns a valid `ModelBundle`. The cheapest one we can write is a one-element list whose `load` function ignores its arguments and returns `toy_bundle`:
+With a bundle in hand, building and running the engine is one line. Pass the bundle directly via `Engine$new(bundle = ...)`; the engine validates the bundle and is then ready to run.
 
 ```{r}
-toy_provider <- list(load = function(model_spec = NULL, ...) toy_bundle)
-```
-
-That is a complete, valid `ModelProvider`. It satisfies the same contract as `PackageProvider$new(registry = list(courier = build_courier_bundle))` would in a packaged model — the engine cannot tell the difference.
-
-With provider in hand, building and running the engine is mechanical:
-
-```{r}
-eng <- Engine$new(provider = toy_provider)
+eng <- Engine$new(bundle = toy_bundle)
 
 out <- eng$run(p, max_events = 200, return_observations = TRUE)
 
@@ -262,7 +253,7 @@ policy <- list(
 
 bundle2 <- compose_bundles(baseline, policy)
 
-eng2 <- Engine$new(provider = list(load = function(model_spec = NULL, ...) bundle2))
+eng2 <- Engine$new(bundle = bundle2)
 
 out2 <- eng2$run(p2, max_events = 30)
 tail(out2$events, 5)

@@ -1,7 +1,7 @@
 Package: flux
 Type: Package
 Title: Event-Based Simulation of Multivariate Systems in Irregular Time
-Version: 1.10.1
+Version: 1.10.2
 Authors@R: person(given = "Jarrod", family = "Dalton", role = c("aut", "cre"), email = "jarrod.dalton@gmail.com")
 Description: Convenience meta-package for installing and loading the core flux
     ecosystem packages for simulation modeling in irregular time.
@@ -10,7 +10,7 @@ Encoding: UTF-8
 Depends:
     R (>= 4.1.0)
 Imports:
-    fluxCore (>= 1.10.1),
+    fluxCore (>= 1.10.2),
     fluxPrepare (>= 1.10.0),
     fluxForecast (>= 1.10.1),
     fluxValidation (>= 1.10.0),
