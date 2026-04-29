@@ -46,16 +46,11 @@ systems in irregular time.
   - `flux#8` (refresh_rules/proposal contract hardening)
   - `flux#9` (broken tutorial code)
   - `fluxCore#1` (schema type doc mismatch)
+  - `fluxCore#2` (init state validation hardening + low-friction validator presets) — closed after v1.10.2 + tutorial polish.
 
 ## Next active issue
 
-- Immediate target: `fluxCore#2` (init state validation hardening + lower-friction
-  schema validator presets).
-- Plan comment posted in issue includes:
-  - explicit init validation semantics decision (strict vs permissive),
-  - built-in type presets + shared constraints (`allow_na`, `min/max`, `levels`),
-  - MVP vs follow-up scope split,
-  - tests + docs updates.
+No fluxCore-level work item is currently in flight. Open trackers (`flux#1`, `flux#4`, `flux#7`, `flux#10`) are forward-looking (v2 API/policy planning, Python interop scan, formal plumber API scaffold, ecosystem-wide roxygen migration) and do not have an immediate next-step plan attached to them.
 
 ## Collaboration norms
 
