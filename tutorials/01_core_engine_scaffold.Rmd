@@ -184,6 +184,114 @@ out$entity$state(c("route_zone", "battery_pct", "payload_kg"))
 `out$events` is the engine's authoritative event log; `out$observations` is whatever your `observe()` hook accumulated; and `out$entity` is the same `p` from above, now mutated with the post-run state.
 
 
+## Variable blocks: grouped state updates
+
+Some state variables naturally evolve **as a unit**. In our delivery domain, *weather* is a good example: when the weather refreshes, both the chance of rain and the wind speed change together, on the same clock, from the same draw. fluxCore lets you tag those variables as members of a named **block**, then update the whole block in one call from `transition()`.
+
+To demonstrate, we'll extend the schema with a new variable `wind_kph` and tag both `wind_kph` and the existing `prob_rain` as members of a `weather` block. Because `prob_rain` already exists in `quicker_schema`, we use `overwrite = TRUE` to replace its spec with one that carries the `blocks` field:
+
+```{r}
+quicker_schema_w_weather <- set_schema(
+  vars = list(
+    prob_rain = list(type = "probability", blocks = "weather"),
+    wind_kph  = list(type = "nonnegative_numeric", max = 100, blocks = "weather")
+  ),
+  schema = quicker_schema,
+  overwrite = TRUE
+)
+
+schema_blocks(quicker_schema_w_weather)
+block_vars(quicker_schema_w_weather, "weather")
+```
+
+A variable can belong to **multiple** blocks; the `blocks` field is a character vector and membership is many-to-many. Block membership is purely metadata on the schema — the engine itself does not interpret blocks. They are a contract that helpers like `update_block()` and `combine_updates()` use to validate that a multivariate update is well-formed.
+
+Now we'll build a bundle with two competing processes:
+
+- a `dispatch` process (as before, with a random inter-arrival time so it doesn't collide with weather), and
+- a `weather` process that fires on its own clock and updates the entire `weather` block at once via `update_block()`.
+
+```{r}
+weather_aware_bundle <- list(
+  time_spec = time_spec(unit = "hours"),
+
+  propose_events = function(entity, ctx = NULL, process_ids = NULL, current_proposals = NULL) {
+    list(
+      dispatch = list(
+        time_next  = entity$last_time + stats::rexp(1, rate = 1.0),
+        event_type = "dispatch"
+      ),
+      weather = list(
+        time_next  = entity$last_time + stats::rexp(1, rate = 0.5),
+        event_type = "weather_refresh"
+      )
+    )
+  },
+
+  transition = function(entity, event, ctx = NULL) {
+    if (identical(event$event_type, "dispatch")) {
+      return(list(
+        payload_kg  = max(0, as.numeric(entity$as_list("payload_kg")$payload_kg) +
+                              stats::rnorm(1, mean = 1, sd = 0.3)),
+        battery_pct = max(0, as.numeric(entity$as_list("battery_pct")$battery_pct) - 4)
+      ))
+    }
+    if (identical(event$event_type, "weather_refresh")) {
+      # Single call updates *both* weather variables; require_all = TRUE (default)
+      # forces the caller to supply every block member, which catches typos and
+      # keeps multivariate state consistent.
+      return(update_block(entity, "weather", list(
+        prob_rain = stats::runif(1, 0, 1),
+        wind_kph  = max(0, stats::rnorm(1, mean = 15, sd = 5))
+      )))
+    }
+    list()
+  },
+
+  stop = function(entity, event, ctx = NULL) entity$last_time >= 6,
+
+  observe = function(entity, event, ctx = NULL) {
+    s <- entity$as_list(c("battery_pct", "payload_kg", "prob_rain", "wind_kph"))
+    data.frame(
+      time        = entity$last_time,
+      event_type  = event$event_type,
+      battery_pct = s$battery_pct,
+      payload_kg  = round(s$payload_kg, 2),
+      prob_rain   = round(s$prob_rain, 2),
+      wind_kph    = round(s$wind_kph, 1)
+    )
+  }
+)
+```
+
+The key line is `update_block(entity, "weather", list(prob_rain = ..., wind_kph = ...))`. It does three things: (1) checks that `weather` is a declared block in the entity's schema, (2) verifies that the supplied names cover every block member (`require_all = TRUE` is the default), and (3) returns a schema-validated, schema-ordered named list ready to be returned from `transition()`. If you forgot one member, mistyped a name, or supplied a value that violates its variable's type, you get a clear error here rather than a silent half-applied update.
+
+Running it:
+
+```{r}
+set.seed(2)
+p_w <- Entity$new(
+  init = list(
+    route_zone           = "urban",
+    battery_pct          = 100,
+    payload_kg           = 0,
+    deliveries_completed = 0L,
+    prob_rain            = 0.5,
+    wind_kph             = 12
+  ),
+  schema = quicker_schema_w_weather,
+  entity_type = "courier",
+  time0 = 0
+)
+
+eng_w <- Engine$new(bundle = weather_aware_bundle)
+out_w <- eng_w$run(p_w, max_events = 200, return_observations = TRUE)
+tail(out_w$observations, 10)
+```
+
+Notice how `prob_rain` and `wind_kph` only ever change on rows whose `event_type` is `weather_refresh`, and they always change *together*. That's the contract the block buys you.
+
+
 ## Batch simulation with global parameter draws
 
 ```{r}
