@@ -22,35 +22,45 @@ systems in irregular time.
 - Preserve low barrier to entry with progressive advanced capability.
 - Prefer explicit contracts over hidden coupling.
 - Maintain backward compatibility when introducing new capability layers.
+- Engine = Schema (portable, data-only) + ModelBundle (language-native) + optional runtime components.
+- `ctx` replaced by formal typed contexts in v2.0.0 (`SimContext`, `ParamContext`, `RuntimeContext`, `EnvironmentContext`).
 
 ## Current strategic themes
 
-- v2.0.0 planning focuses on:
-  - action/policy integration as first-class event stream
-  - context contract modernization beyond catch-all `ctx`
-  - trajectory logging for audit and ABM/RL compatibility
-- Super-repo organization and developer ergonomics improvements are ongoing.
+- v2.0.0 planning is the primary current focus:
+  - Full architecture plan at `docs/current/v2.0_plan.md` (v0.1.0).
+  - Stage 0 (red-flag discovery) complete; **Stage 1 (contract freeze) is current** — no code yet.
+  - Action/policy integration as first-class event stream.
+  - `ctx` replaced by formal typed contexts (`SimContext`, `ParamContext`, `RuntimeContext`, `EnvironmentContext`).
+  - `load_model()` replaces `ModelProvider` as the recommended assembly entry point.
+  - Trajectory logging for audit and RL compatibility via `TrajectoryRecord`.
+  - Tracking: flux issue #1 (v2.0 planning), flux issue #4 (Python portability).
 
 ## Current release state
 
-- Ecosystem is released at `v1.10.2` (super-repo, fluxCore). fluxForecast remains at `v1.10.1`. The other 5 subrepos remain at `v1.10.0`; their dependency floors stay `(>= 1.10.0)`.
-- v1.10.2 is a focused fluxCore patch addressing an API ergonomics issue surfaced during v1.10.1 tutorial polish:
-  - fluxCore: new `Engine$new(bundle = ...)` shortcut for inline / in-memory bundles. Removes the `provider = list(load = function(...) bundle)` boilerplate that was the user's first encounter with fluxCore. Fully additive — `provider = ...` path unchanged.
-  - Tutorial 01 renamed to "Engine and ModelBundle scaffold"; both call sites use the new shortcut.
-- v1.10.1 was a coordinated patch tightening v1.10.0's headline schema features:
-  - fluxCore: removed `id_string` type, added `percent` type, rewrote `set_schema()` with hybrid `vars` syntax (string OR list spec per element) and explicit `overwrite` / `remove` controls.
-  - fluxForecast: `validate_forecast()` now delegates schema validation to `fluxCore::schema_validate()` (single source of truth; eliminated duplicated allow-list).
-  - Super-repo: `header_logo.png` and release/maintenance scripts moved under `resources/`; vestigial top-level `reports/` removed.
-- Release tags and GitHub releases for `v1.10.2` are published for: `flux`, `fluxCore`. fluxForecast and other subrepos remain at their existing `v1.10.1` / `v1.10.0` releases.
-- Resolved issue closures after `v1.10.0`:
-  - `flux#8` (refresh_rules/proposal contract hardening)
-  - `flux#9` (broken tutorial code)
-  - `fluxCore#1` (schema type doc mismatch)
-  - `fluxCore#2` (init state validation hardening + low-friction validator presets) — closed after v1.10.2 + tutorial polish.
+- All 5 production packages and the flux super-repo are at **v1.11.0**. All GitHub releases are published (non-draft, non-prerelease).
+  - fluxCore v1.11.0 → tag `v1.11.0` → commit `9814f14`
+  - fluxForecast v1.11.0 → tag `v1.11.0` → commit `e37abc2`
+  - fluxPrepare v1.11.0 → tag `v1.11.0` → commit `6e37baf`
+  - fluxValidation v1.11.0 → tag `v1.11.0` → commit `4e79264`
+  - fluxOrchestrate v1.11.0 → tag `v1.11.0` → commit `c363c51`
+  - flux (super-repo) v1.11.0 → commit `35a00b7`
+- Non-production repos (fluxASCVD, fluxModelTemplate) not included in coordinated release.
+- v1.11.0 headline changes:
+  - Ecosystem-wide inline roxygen migration (flux#10 closed).
+  - fluxOrchestrate: hospital entity init failure fixed (fluxOrchestrate#1 closed).
+  - fluxForecast: `state_summary()` type dispatch extended to full numeric type family (fluxForecast#2 closed).
+  - fluxCore: full type taxonomy including `logical`, `binary`, `integer`, `count`, `nonnegative_integer`, `positive_integer`, `numeric`, `nonnegative_numeric`, `positive_numeric`, `probability`, `percent`, `categorical`, `ordinal`, `string`, `nonempty_string`.
+- Open issues after v1.11.0:
+  - `flux#1`: v2.0.0 planning — Stage 1 (contract freeze) in progress
+  - `flux#4`: Python portability red-flag scan — Stage 0 complete, informing v2.0 design
+  - `flux#7`: plumber API scaffold — not yet started
 
-## Next active issue
+## Next active work
 
-No fluxCore-level work item is currently in flight. Open trackers (`flux#1`, `flux#4`, `flux#7`, `flux#10`) are forward-looking (v2 API/policy planning, Python interop scan, formal plumber API scaffold, ecosystem-wide roxygen migration) and do not have an immediate next-step plan attached to them.
+- **Stage 1 contract freeze** (`flux#1`): review `docs/current/v2.0_plan.md`, resolve the 4 open design questions listed there, and comment sign-off on issue #1 before any implementation begins.
+- After Stage 1 sign-off: proceed to Stage 2 (fluxCore skeleton: formal context constructors + `load_model()`) on branch `feature/v2-core-skeleton`.
+- `flux#7` (plumber API scaffold) is open but not scheduled.
 
 ## Collaboration norms
 
