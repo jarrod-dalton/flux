@@ -1,5 +1,19 @@
 # flux ecosystem news
 
+## 1.11.0
+
+- Coordinated ecosystem release: all five production packages (fluxCore,
+  fluxPrepare, fluxForecast, fluxValidation, fluxOrchestrate) migrated from
+  manual `.Rd` / `NAMESPACE` to inline roxygen2 documentation. Generated
+  artifacts are no longer hand-edited.
+- Bug fix (fluxForecast): `state_summary()` type dispatch now covers the full
+  fluxCore 1.10.x numeric type taxonomy. Variables typed as `probability`,
+  `percent`, `nonnegative_numeric`, etc. previously returned `NULL`; now
+  handled correctly.
+- New export (fluxOrchestrate): `route_toy_bundle()` replaces the retired
+  `hospital_toy_bundle()`. Demo bundle now uses an urban food delivery courier
+  domain consistent with the canonical ecosystem tutorial.
+
 ## 1.10.2
 
 - **fluxCore patch**: new `Engine$new(bundle = ...)` shortcut for inline model bundles. Removes the boilerplate `provider = list(load = function(...) bundle)` pattern from tutorials, scratch work, and tests. The `provider = ...` path is unchanged. See [GH issue #1](https://github.com/jarrod-dalton/flux/issues/1) for the broader API ergonomics conversation that surfaced this.
