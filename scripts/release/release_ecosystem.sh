@@ -68,7 +68,7 @@ run_cmd() {
 for repo in "${REPOS[@]}"; do
   dir="${ROOT_DIR}/${repo}"
   repo_label="$(basename "${repo}")"
-  if [[ ! -d "${dir}/.git" ]]; then
+  if [[ ! -e "${dir}/.git" ]]; then
     echo "Skipping ${repo_label}: not a git repo"
     continue
   fi
@@ -77,7 +77,17 @@ for repo in "${REPOS[@]}"; do
   git -C "${dir}" status --short
 
   run_cmd git -C "${dir}" add -A
-  run_cmd git -C "${dir}" commit -m "${COMMIT_MSG}"
+  # Only commit if there are staged/unstaged changes
+  if [[ -n "$(git -C "${dir}" status --porcelain)" ]]; then
+    run_cmd git -C "${dir}" commit -m "${COMMIT_MSG}"
+  else
+    echo "  (nothing to commit in ${repo_label})"
+  fi
+  # Re-create tag at current HEAD (delete old one first if it exists)
+  if git -C "${dir}" rev-parse "${TAG}" >/dev/null 2>&1; then
+    run_cmd git -C "${dir}" tag -d "${TAG}"
+    run_cmd git -C "${dir}" push origin ":refs/tags/${TAG}" || true
+  fi
   run_cmd git -C "${dir}" tag -a "${TAG}" -m "${TAG}"
   run_cmd git -C "${dir}" push origin HEAD
   run_cmd git -C "${dir}" push origin "${TAG}"
