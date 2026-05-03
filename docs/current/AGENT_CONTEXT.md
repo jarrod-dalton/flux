@@ -28,8 +28,8 @@ systems in irregular time.
 ## Current strategic themes
 
 - v2.0.0 planning is the primary current focus:
-  - Full architecture plan at `docs/current/v2.0_plan.md` (v0.1.0).
-  - Stage 0 (red-flag discovery) complete; **Stage 1 (contract freeze) is current** — no code yet.
+  - Full architecture plan at `docs/current/v2.0_plan.md` (v0.1.1).
+  - Stage 0 (red-flag discovery) complete; Stage 1 (contract freeze) complete; **Stage 2 (core skeleton) is current**.
   - Action/policy integration as first-class event stream.
   - `ctx` replaced by formal typed contexts (`SimContext`, `ParamContext`, `RuntimeContext`, `EnvironmentContext`).
   - No user-facing `ctx` back-compat in v2.0.0 (fail fast on `ctx`-style usage).
@@ -53,14 +53,15 @@ systems in irregular time.
   - fluxForecast: `state_summary()` type dispatch extended to full numeric type family (fluxForecast#2 closed).
   - fluxCore: full type taxonomy including `logical`, `binary`, `integer`, `count`, `nonnegative_integer`, `positive_integer`, `numeric`, `nonnegative_numeric`, `positive_numeric`, `probability`, `percent`, `categorical`, `ordinal`, `string`, `nonempty_string`.
 - Open issues after v1.11.0:
-  - `flux#1`: v2.0.0 planning — Stage 1 (contract freeze) in progress
+  - `flux#1`: v2.0.0 planning — Stage 2 (core skeleton) in progress
   - `flux#4`: Python portability red-flag scan — Stage 0 complete, informing v2.0 design
   - `flux#7`: plumber API scaffold — not yet started
 
 ## Next active work
 
-- **Stage 1 contract freeze** (`flux#1`): review `docs/current/v2.0_plan.md`, resolve the 4 open design questions listed there, and comment sign-off on issue #1 before any implementation begins.
-- After Stage 1 sign-off: proceed to Stage 2 (fluxCore skeleton: formal context constructors + `load_model()`) on branch `feature/v2-core-skeleton`.
+- **Stage 2 core skeleton** (`flux#1`): implement formal context constructors/validators and `load_model()` contract in fluxCore.
+- Add fail-fast errors for `ctx`-style usage at v2.0.0 entry points.
+- Add trajectory summary function option (summary-level state capture) while keeping NULL default for state_before/state_after.
 - `flux#7` (plumber API scaffold) is open but not scheduled.
 
 ## Collaboration norms
