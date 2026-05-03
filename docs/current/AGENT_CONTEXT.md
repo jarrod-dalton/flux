@@ -53,13 +53,14 @@ systems in irregular time.
   - fluxForecast: `state_summary()` type dispatch extended to full numeric type family (fluxForecast#2 closed).
   - fluxCore: full type taxonomy including `logical`, `binary`, `integer`, `count`, `nonnegative_integer`, `positive_integer`, `numeric`, `nonnegative_numeric`, `positive_numeric`, `probability`, `percent`, `categorical`, `ordinal`, `string`, `nonempty_string`.
 - Open issues after v1.11.0:
-  - `flux#1`: v2.0.0 planning — Stage 2A/2B complete; Stage 3 started in `fluxCore` (`feature/v2-core-skeleton` @ `24db36c`) with initial trajectory emission + tests
+  - `flux#1`: v2.0.0 planning — Stage 2A/2B complete; Stage 3 core trajectory implementation + parity tests in `fluxCore` (`feature/v2-core-skeleton` @ `8d95749`); Stage 3 closeout + Stage 4 decomposition next
   - `flux#4`: Python portability red-flag scan — Stage 0 complete, informing v2.0 design
   - `flux#7`: plumber API scaffold — not yet started
 
 ## Next active work
 
-- **Stage 3 trajectory logging** (`flux#1`): wire `TrajectoryRecord` emission in Engine and validate summary_fn/detail paths.
+- **Stage 3 closeout** (`flux#1`): finalize any remaining trajectory logging contract/documentation details and confirm ecosystem-facing surfaces.
+- **Stage 4 planning pause**: produce a detailed Stage 4 decomposition plan (4A/4B/4C...) before downstream package migration begins.
 - Stage 2 delivered in `fluxCore` includes: typed context/runtime integration in `run_cohort()`, v2-mode `ctx` fail-fast for cohort path, policy dispatch at schema decision points, and deterministic Stage 2A/2B test coverage.
 - `flux#7` (plumber API scaffold) is open but not scheduled.
 
