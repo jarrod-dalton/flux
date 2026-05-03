@@ -28,7 +28,7 @@ systems in irregular time.
 ## Current strategic themes
 
 - v2.0.0 planning is the primary current focus:
-  - Full architecture plan at `docs/current/v2.0_plan.md` (v0.1.2).
+  - Full architecture plan at `docs/current/v2.0_plan.md` (v0.1.3).
   - Stage 0 (red-flag discovery) complete; Stage 1 (contract freeze) complete; Stage 2 core implementation complete through 2A/2B (RNG normalization + policy scaffolding).
   - Action/policy integration as first-class event stream.
   - `ctx` replaced by formal typed contexts (`SimContext`, `ParamContext`, `RuntimeContext`, `EnvironmentContext`).
