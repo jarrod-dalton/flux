@@ -53,7 +53,7 @@ systems in irregular time.
   - fluxForecast: `state_summary()` type dispatch extended to full numeric type family (fluxForecast#2 closed).
   - fluxCore: full type taxonomy including `logical`, `binary`, `integer`, `count`, `nonnegative_integer`, `positive_integer`, `numeric`, `nonnegative_numeric`, `positive_numeric`, `probability`, `percent`, `categorical`, `ordinal`, `string`, `nonempty_string`.
 - Open issues after v1.11.0:
-  - `flux#1`: v2.0.0 planning — Stage 2A/2B complete in `fluxCore` (`feature/v2-core-skeleton` @ `f7b4b30`); Stage 3 (trajectory logging) next
+  - `flux#1`: v2.0.0 planning — Stage 2A/2B complete in `fluxCore` (`feature/v2-core-skeleton` @ `e025b2b`); Stage 3 (trajectory logging) next
   - `flux#4`: Python portability red-flag scan — Stage 0 complete, informing v2.0 design
   - `flux#7`: plumber API scaffold — not yet started
 
