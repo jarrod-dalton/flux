@@ -32,6 +32,7 @@ systems in irregular time.
   - Stage 0 (red-flag discovery) complete; **Stage 1 (contract freeze) is current** — no code yet.
   - Action/policy integration as first-class event stream.
   - `ctx` replaced by formal typed contexts (`SimContext`, `ParamContext`, `RuntimeContext`, `EnvironmentContext`).
+  - No user-facing `ctx` back-compat in v2.0.0 (fail fast on `ctx`-style usage).
   - `load_model()` replaces `ModelProvider` as the recommended assembly entry point.
   - Trajectory logging for audit and RL compatibility via `TrajectoryRecord`.
   - Tracking: flux issue #1 (v2.0 planning), flux issue #4 (Python portability).
