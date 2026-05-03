@@ -28,7 +28,7 @@ systems in irregular time.
 ## Current strategic themes
 
 - v2.0.0 planning is the primary current focus:
-  - Full architecture plan at `docs/current/v2.0_plan.md` (v0.1.1).
+  - Full architecture plan at `docs/current/v2.0_plan.md` (v0.1.2).
   - Stage 0 (red-flag discovery) complete; Stage 1 (contract freeze) complete; Stage 2 core implementation complete through 2A/2B (RNG normalization + policy scaffolding).
   - Action/policy integration as first-class event stream.
   - `ctx` replaced by formal typed contexts (`SimContext`, `ParamContext`, `RuntimeContext`, `EnvironmentContext`).
@@ -53,7 +53,7 @@ systems in irregular time.
   - fluxForecast: `state_summary()` type dispatch extended to full numeric type family (fluxForecast#2 closed).
   - fluxCore: full type taxonomy including `logical`, `binary`, `integer`, `count`, `nonnegative_integer`, `positive_integer`, `numeric`, `nonnegative_numeric`, `positive_numeric`, `probability`, `percent`, `categorical`, `ordinal`, `string`, `nonempty_string`.
 - Open issues after v1.11.0:
-  - `flux#1`: v2.0.0 planning — Stage 2A/2B complete in `fluxCore` (`feature/v2-core-skeleton` @ `e025b2b`); Stage 3 (trajectory logging) next
+  - `flux#1`: v2.0.0 planning — Stage 2A/2B complete; Stage 3 started in `fluxCore` (`feature/v2-core-skeleton` @ `24db36c`) with initial trajectory emission + tests
   - `flux#4`: Python portability red-flag scan — Stage 0 complete, informing v2.0 design
   - `flux#7`: plumber API scaffold — not yet started
 
