@@ -8,9 +8,7 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
-```
+
 
 ## What orchestration means in the flux ecosystem
 
@@ -75,7 +73,8 @@ This package provides `hospital_toy_bundle()` as a minimal episode model:
 
 It is intentionally simple and useful for unit tests and demonstrations.
 
-```{r eval=FALSE}
+
+``` r
 library(fluxCore)
 library(fluxOrchestrate)
 

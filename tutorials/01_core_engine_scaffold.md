@@ -8,9 +8,7 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
-```
+
 
 This vignette demonstrates the core architecture:
 
@@ -36,7 +34,8 @@ An `Entity` may also carry an optional single-column identifier `id` (default `N
 
 
 To begin, load the library.
-```{r}
+
+``` r
 library(fluxCore)
 set.seed(1)
 ```
@@ -45,7 +44,8 @@ The first task is to define a `schema` for the entity's state variables. The sch
 
 The `fluxCore` package provides a default schema specification format, but you can define your own as long as it follows the expected structure. Below, we show how to create a schema using default variable formats (each of which has a default validation strategy), and then how to define a custom schema manually if you need more control.
 
-```{r}
+
+``` r
 # The schema is a list object with one entry per state variable. Each entry is itself a list with at least a `type` field, and optionally `levels`, `default`, `coerce`, and `validate` fields.
 schema <- list(
   route_zone = list(
@@ -70,7 +70,8 @@ schema$payload_kg <- list(
 ```
 The above illustrates how to build up a schema incrementally, which is useful when you have a large number of variables or want to define them in different parts of the code. However, if you have a simple model and want to create a schema in one step, the `set_schema` helper function provides a convenient shortcut.
 
-```{r}
+
+``` r
 quicker_schema <- set_schema(vars = list(
   route_zone           = list(type = "categorical",
                               levels = c("urban", "suburban", "rural")),
@@ -85,7 +86,8 @@ This creates a fully validated schema with automatic type-specific defaults. The
 
 You can also extend or replace entries in an existing schema. By default, adding a variable that already exists is an error; pass `overwrite = TRUE` to replace it, or use `remove = ` to drop entries:
 
-```{r}
+
+``` r
 quicker_schema <- set_schema(
   vars = list(deliveries_completed = list(type = "count", max = 50)),
   schema = quicker_schema,
@@ -125,7 +127,8 @@ Bundles can also expose optional hooks (`init_entity`, `refresh_rules`, `event_c
 
 Below is the smallest interesting bundle: a single process named `dispatch` that fires every hour, adds a noisy parcel of payload, and drains 4% of the battery. It stops at `time = 6` and records the schema-relevant fields after each event.
 
-```{r}
+
+``` r
 toy_bundle <- list(
   time_spec = time_spec(unit = "hours"),
   propose_events = function(entity, ctx = NULL, process_ids = NULL, current_proposals = NULL) {
@@ -160,7 +163,8 @@ Notice that nothing in `toy_bundle` knows the schema directly — the bundle rea
 
 The `Entity` is initialized with a starting state (one value per schema variable) and the schema we built above. The engine will reject any subsequent update that violates that schema.
 
-```{r}
+
+``` r
 p <- Entity$new(
   init = list(route_zone = "urban", battery_pct = 100, payload_kg = 0, deliveries_completed = 0L, prob_rain = 0.5),
   schema = quicker_schema,
@@ -173,14 +177,45 @@ p <- Entity$new(
 
 With a bundle in hand, building and running the engine is one line. Pass the bundle directly via `Engine$new(bundle = ...)`; the engine validates the bundle and is then ready to run.
 
-```{r}
+
+``` r
 eng <- Engine$new(bundle = toy_bundle)
 
 out <- eng$run(p, max_events = 200, return_observations = TRUE)
 
 tail(out$events, 6)
+#>   j time event_type
+#> 2 1    1   dispatch
+#> 3 2    2   dispatch
+#> 4 3    3   dispatch
+#> 5 4    4   dispatch
+#> 6 5    5   dispatch
+#> 7 6    6   dispatch
 tail(out$observations, 6)
+#>   time event_type route_zone battery_pct payload_kg deliveries_completed
+#> 1    1   dispatch      urban          96  0.8120639                    0
+#> 2    2   dispatch      urban          92  1.8671569                    0
+#> 3    3   dispatch      urban          88  2.6164683                    0
+#> 4    4   dispatch      urban          84  4.0950525                    0
+#> 5    5   dispatch      urban          80  5.1939048                    0
+#> 6    6   dispatch      urban          76  5.9477643                    0
+#>   prob_rain
+#> 1       0.5
+#> 2       0.5
+#> 3       0.5
+#> 4       0.5
+#> 5       0.5
+#> 6       0.5
 out$entity$state(c("route_zone", "battery_pct", "payload_kg"))
+#> <flux_state>
+#> $route_zone
+#> [1] "urban"
+#> 
+#> $battery_pct
+#> [1] 76
+#> 
+#> $payload_kg
+#> [1] 5.947764
 ```
 
 `out$events` is the engine's authoritative event log; `out$observations` is whatever your `observe()` hook accumulated; and `out$entity` is the same `p` from above, now mutated with the post-run state.
@@ -192,7 +227,8 @@ Some state variables naturally evolve **as a unit**. In our delivery domain, *we
 
 To demonstrate, we'll extend the schema with a new variable `wind_kph` and tag both `wind_kph` and the existing `prob_rain` as members of a `weather` block. Because `prob_rain` already exists in `quicker_schema`, we use `overwrite = TRUE` to replace its spec with one that carries the `blocks` field:
 
-```{r}
+
+``` r
 quicker_schema_w_weather <- set_schema(
   vars = list(
     prob_rain = list(type = "probability", blocks = "weather"),
@@ -203,7 +239,9 @@ quicker_schema_w_weather <- set_schema(
 )
 
 schema_blocks(quicker_schema_w_weather)
+#> [1] "weather"
 block_vars(quicker_schema_w_weather, "weather")
+#> [1] "prob_rain" "wind_kph"
 ```
 
 A variable can belong to **multiple** blocks; the `blocks` field is a character vector and membership is many-to-many. Block membership is purely metadata on the schema — the engine itself does not interpret blocks. They are a contract that helpers like `update_block()` and `combine_updates()` use to validate that a multivariate update is well-formed.
@@ -213,7 +251,8 @@ Now we'll build a bundle with two competing processes:
 - a `dispatch` process (as before, with a random inter-arrival time so it doesn't collide with weather), and
 - a `weather` process that fires on its own clock and updates the entire `weather` block at once via `update_block()`.
 
-```{r}
+
+``` r
 weather_aware_bundle <- list(
   time_spec = time_spec(unit = "hours"),
 
@@ -270,7 +309,8 @@ The key line is `update_block(entity, "weather", list(prob_rain = ..., wind_kph 
 
 Running it:
 
-```{r}
+
+``` r
 set.seed(2)
 p_w <- Entity$new(
   init = list(
@@ -289,6 +329,14 @@ p_w <- Entity$new(
 eng_w <- Engine$new(bundle = weather_aware_bundle)
 out_w <- eng_w$run(p_w, max_events = 200, return_observations = TRUE)
 tail(out_w$observations, 10)
+#>        time      event_type battery_pct payload_kg prob_rain wind_kph
+#> 1 0.8094961 weather_refresh         100       0.00      0.57     10.2
+#> 2 0.8990223        dispatch          96       0.79      0.57     10.2
+#> 3 2.7318775        dispatch          92       2.10      0.57     10.2
+#> 4 3.3794725 weather_refresh          92       2.10      0.39     19.9
+#> 5 4.4617087        dispatch          88       2.77      0.39     19.9
+#> 6 5.7024773 weather_refresh          88       2.77      0.87     15.2
+#> 7 6.3913353        dispatch          84       3.90      0.87     15.2
 ```
 
 Notice how `prob_rain` and `wind_kph` only ever change on rows whose `event_type` is `weather_refresh`, and they always change *together*. That's the contract the block buys you.
@@ -296,7 +344,8 @@ Notice how `prob_rain` and `wind_kph` only ever change on rows whose `event_type
 
 ## Batch simulation with global parameter draws
 
-```{r}
+
+``` r
 entities <- lapply(1:4, function(i) {
   Entity$new(
     init = list(
@@ -324,11 +373,19 @@ batch <- run_cohort(
 )
 
 head(batch$index)
+#>   entity_id param_draw_id sim_id run_id
+#> 1       id1             1      1  run_1
+#> 2       id1             1      2  run_2
+#> 3       id1             2      1  run_3
+#> 4       id1             2      2  run_4
+#> 5       id1             3      1  run_5
+#> 6       id1             3      2  run_6
 ```
 
 ## Policy / intervention layering
 
-```{r}
+
+``` r
 # Example: add a priority mode after time >= 2 (requires schema include priority_mode)
 schema2 <- quicker_schema
 schema2$priority_mode <- list(
@@ -367,5 +424,20 @@ eng2 <- Engine$new(bundle = bundle2)
 
 out2 <- eng2$run(p2, max_events = 30)
 tail(out2$events, 5)
+#>   j time event_type
+#> 3 2    2   dispatch
+#> 4 3    3   dispatch
+#> 5 4    4   dispatch
+#> 6 5    5   dispatch
+#> 7 6    6   dispatch
 out2$entity$state(c("route_zone", "battery_pct", "priority_mode"))
+#> <flux_state>
+#> $route_zone
+#> [1] "urban"
+#> 
+#> $battery_pct
+#> [1] 76
+#> 
+#> $priority_mode
+#> [1] "surge"
 ```

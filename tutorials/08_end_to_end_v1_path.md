@@ -46,7 +46,7 @@ make ecosystem-all
 
 Use the ASCVD reference scripts in this folder:
 
-- `06_ascvd_ecosystem_welcome.R`
-- `07_ascvd_prepare_ttv.R`
+- `06_ascvd_ecosystem_welcome.md`
+- `07_ascvd_prepare_ttv.md`
 
 These demonstrate a concrete domain package while preserving the abstract ecosystem architecture.
