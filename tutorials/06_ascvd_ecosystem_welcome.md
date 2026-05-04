@@ -14,6 +14,7 @@ library(fluxCore)
 # at run-time. Downstream packages can use ctx$time$unit to label and sanity-check
 # time-related quantities.
 ctx <- fluxCore::set_time_unit(ctx = list(), unit = "years")
+#> Error: 'set_time_unit' is not an exported object from 'namespace:fluxCore'
 
 # fluxCore schemas are named lists of variable descriptors.
 # Each variable has at least:
@@ -102,7 +103,7 @@ schema$age
 #> $validate
 #> function (x) 
 #> length(x) == 1L && (is.na(x) || (is.finite(x) && x >= 0))
-#> <environment: 0x1057c8ea0>
+#> <environment: 0x13e2678d0>
 schema$ldl
 #> $type
 #> [1] "continuous"
@@ -116,7 +117,7 @@ schema$ldl
 #> $validate
 #> function (x) 
 #> length(x) == 1L && (is.na(x) || is.finite(x))
-#> <environment: 0x1057c8ea0>
+#> <environment: 0x13e2678d0>
 #> 
 #> $blocks
 #> [1] "lipids"

@@ -20,7 +20,9 @@ ensure_dir <- function(path) {
 }
 
 render_knit <- function(input) {
-  output <- file.path(dirname(input), paste0(tools::file_path_sans_ext(basename(input)), ".md"))
+  # Output always goes into tutorials/ (parent of src/), not src/ itself
+  out_dir <- if (basename(dirname(input)) == "src") dirname(dirname(input)) else dirname(input)
+  output <- file.path(out_dir, paste0(tools::file_path_sans_ext(basename(input)), ".md"))
   message("Knitting ", input, " -> ", output)
   knitr::knit(input, output = output, quiet = TRUE)
   txt <- readLines(output, warn = FALSE)
@@ -29,7 +31,8 @@ render_knit <- function(input) {
 }
 
 render_spin <- function(input) {
-  output <- file.path(dirname(input), paste0(tools::file_path_sans_ext(basename(input)), ".md"))
+  out_dir <- if (basename(dirname(input)) == "src") dirname(dirname(input)) else dirname(input)
+  output <- file.path(out_dir, paste0(tools::file_path_sans_ext(basename(input)), ".md"))
   message("Spinning ", input)
   spun_rmd <- knitr::spin(input, knit = FALSE, format = "Rmd")
 
@@ -51,15 +54,15 @@ knitr::opts_knit$set(base.dir = repo_root, root.dir = repo_root)
 knitr::opts_chunk$set(fig.path = "figure/")
 
 knit_inputs <- c(
-  "tutorials/01_core_engine_scaffold.Rmd",
-  "tutorials/03_validation_observed_grids_and_masks.Rmd",
-  "tutorials/04_validation_event_risk_apples_to_apples.Rmd",
+  "tutorials/src/01_core_engine_scaffold.Rmd",
+  "tutorials/src/03_validation_observed_grids_and_masks.Rmd",
+  "tutorials/src/04_validation_event_risk_apples_to_apples.Rmd",
   "tutorials/05_orchestration_framework.md"
 )
 
 spin_inputs <- c(
-  "tutorials/06_ascvd_ecosystem_welcome.R",
-  "tutorials/07_ascvd_prepare_ttv.R"
+  "tutorials/src/06_ascvd_ecosystem_welcome.R",
+  "tutorials/src/07_ascvd_prepare_ttv.R"
 )
 
 for (f in knit_inputs) render_knit(f)

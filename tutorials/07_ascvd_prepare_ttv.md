@@ -77,6 +77,7 @@ ctx <- fluxCore::set_time_unit(
   ctx = list(),
   unit = "weeks"
 )
+#> Error: 'set_time_unit' is not an exported object from 'namespace:fluxCore'
 
 example_ids <- head(ehr$entities$entity_id, 2)
 
@@ -109,29 +110,14 @@ obs <- prepare_observations(
   ),
   ctx = ctx
 )
+#> Error: object 'ctx' not found
 
 obs |>
   dplyr::filter(entity_id %in% example_ids) |>
   head(10) |>
   knitr::kable()
+#> Error: object 'obs' not found
 ```
-
-
-
-|entity_id |     time|group  | ldl| hdl| sbp| dbp|source_table |
-|:---------|--------:|:------|---:|---:|---:|---:|:------------|
-|1         | 2574.429|vitals |  NA|  NA| 138|  85|vitals       |
-|1         | 2587.143|labs   | 138|  59|  NA|  NA|labs         |
-|1         | 2612.571|vitals |  NA|  NA| 125|  88|vitals       |
-|1         | 2664.000|vitals |  NA|  NA| 131|  92|vitals       |
-|1         | 2696.429|vitals |  NA|  NA| 132|  89|vitals       |
-|1         | 2722.000|labs   | 141|  71|  NA|  NA|labs         |
-|1         | 2739.429|vitals |  NA|  NA| 123|  84|vitals       |
-|1         | 2830.857|labs   | 131|  45|  NA|  NA|labs         |
-|2         | 2570.714|vitals |  NA|  NA| 136|  90|vitals       |
-|2         | 2627.571|vitals |  NA|  NA| 124|  80|vitals       |
-
-
 
 ``` r
 events <- prepare_events(
@@ -141,22 +127,14 @@ events <- prepare_events(
   type_col  = "event",
   ctx       = ctx
 )
+#> Error: object 'ctx' not found
 
 events |>
   dplyr::filter(entity_id %in% example_ids) |>
   head(10) |>
   knitr::kable()
+#> Error: object 'events' not found
 ```
-
-
-
-|entity_id |     time|event_type      |source_table |
-|:---------|--------:|:---------------|:------------|
-|1         | 2726.286|death           |NA           |
-|1         | 2778.714|office_visit    |NA           |
-|2         | 2670.000|hospitalization |NA           |
-
-
 
 ``` r
 set.seed(1)
@@ -196,15 +174,18 @@ splits |>
 fu_obs <- obs |>
   dplyr::group_by(entity_id) |>
   dplyr::summarize(t_obs_min = min(time), .groups = "drop")
+#> Error: object 'obs' not found
 
 fu_evt <- events |>
   dplyr::group_by(entity_id) |>
   dplyr::summarize(t_evt_min = min(time), .groups = "drop")
+#> Error: object 'events' not found
 
 fu_death <- events |>
   dplyr::filter(event_type == "death") |>
   dplyr::group_by(entity_id) |>
   dplyr::summarize(death_time = min(time), .groups = "drop")
+#> Error: object 'events' not found
 
 followup <- splits |>
   dplyr::select(entity_id) |>
@@ -216,20 +197,13 @@ followup <- splits |>
   ) |>
   dplyr::left_join(fu_death, by = "entity_id") |>
   dplyr::select(entity_id, followup_start, followup_end, death_time)
+#> Error: object 'fu_obs' not found
 
 followup |>
   dplyr::filter(entity_id %in% example_ids) |>
   knitr::kable()
+#> Error: object 'followup' not found
 ```
-
-
-
-|entity_id | followup_start| followup_end| death_time|
-|:---------|--------------:|------------:|----------:|
-|1         |       2574.429|     3042.429|   2726.286|
-|2         |       2570.714|     3038.714|         NA|
-
-
 
 ``` r
 event_settings <- spec_event_process(
@@ -301,27 +275,19 @@ ttv_major <- build_ttv_event_process(
   followup     = followup,
   ctx          = ctx
 )
+#> Error: object 'events' not found
 
 ttv_major |>
   dplyr::filter(entity_id %in% example_ids) |>
   head(12) |>
   knitr::kable()
+#> Error: object 'ttv_major' not found
 ```
-
-
-
-|entity_id |split |       t0|       t1|    deltat|event_occurred |event_type | censoring_time|
-|:---------|:-----|--------:|--------:|---------:|:--------------|:----------|--------------:|
-|1         |train | 2574.429| 2726.286| 151.85714|TRUE           |death      |       2726.286|
-|2         |train | 2570.714| 2947.571| 376.85714|FALSE          |NA         |       3038.714|
-|2         |train | 2947.571| 2985.571|  38.00000|FALSE          |NA         |       3038.714|
-|2         |train | 2985.571| 3038.714|  53.14286|FALSE          |NA         |       3038.714|
-
-
 
 ``` r
 anchors <- ttv_major |>
   dplyr::select(entity_id, t0)
+#> Error: object 'ttv_major' not found
 
 state_t0 <- reconstruct_state_at(
   anchors      = anchors,
@@ -330,6 +296,7 @@ state_t0 <- reconstruct_state_at(
   lookback     = 52,
   staleness    = 52
 )
+#> Error: anchors must be a data.frame.
 
 ttv_major_cov <- ttv_major |>
   dplyr::left_join(
@@ -337,23 +304,14 @@ ttv_major_cov <- ttv_major |>
       dplyr::select(entity_id, t0, sbp, dbp, ldl, hdl),
     by = c("entity_id", "t0")
   )
+#> Error: object 'ttv_major' not found
 
 ttv_major_cov |>
   dplyr::filter(entity_id %in% example_ids) |>
   head(8) |>
   knitr::kable()
+#> Error: object 'ttv_major_cov' not found
 ```
-
-
-
-|entity_id |split |       t0|       t1|    deltat|event_occurred |event_type | censoring_time| sbp| dbp| ldl| hdl|
-|:---------|:-----|--------:|--------:|---------:|:--------------|:----------|--------------:|---:|---:|---:|---:|
-|1         |train | 2574.429| 2726.286| 151.85714|TRUE           |death      |       2726.286| 138|  85|  NA|  NA|
-|2         |train | 2570.714| 2947.571| 376.85714|FALSE          |NA         |       3038.714| 136|  90|  NA|  NA|
-|2         |train | 2947.571| 2985.571|  38.00000|FALSE          |NA         |       3038.714| 116|  82|  NA|  NA|
-|2         |train | 2985.571| 3038.714|  53.14286|FALSE          |NA         |       3038.714| 131|  88| 113|  47|
-
-
 
 ``` r
 ttv_bp <- build_ttv_state(
@@ -368,27 +326,12 @@ ttv_bp <- build_ttv_state(
   staleness      = 52,    ### model's time_unit (weeks)
   row_policy     = "drop_incomplete"
 )
+#> Error: object 'obs' not found
 
 ttv_bp |>
   dplyr::filter(entity_id %in% example_ids) |>
   head(10) |>
   knitr::kable()
+#> Error: object 'ttv_bp' not found
 ```
-
-
-
-|entity_id |split |       t0|       t1|    deltat|censored |end_type | sbp| dbp| ldl| hdl| .time_sbp|.prov_sbp | .time_dbp|.prov_dbp | .time_ldl|.prov_ldl       | .time_hdl|.prov_hdl       | sbp.1| dbp.1|
-|:---------|:-----|--------:|--------:|---------:|:--------|:--------|---:|---:|---:|---:|---------:|:---------|---------:|:---------|---------:|:---------------|---------:|:---------------|-----:|-----:|
-|1         |train | 2574.429| 2612.571|  38.14286|FALSE    |observed | 138|  85|  NA|  NA|  2574.429|observed  |  2574.429|observed  |        NA|missing         |        NA|missing         |   125|    88|
-|1         |train | 2612.571| 2664.000|  51.42857|FALSE    |observed | 125|  88| 138|  59|  2612.571|observed  |  2612.571|observed  |  2587.143|carried_forward |  2587.143|carried_forward |   131|    92|
-|1         |train | 2664.000| 2696.429|  32.42857|FALSE    |observed | 131|  92|  NA|  NA|  2664.000|observed  |  2664.000|observed  |        NA|missing         |        NA|missing         |   132|    89|
-|1         |train | 2696.429| 2726.286|  29.85714|TRUE     |death    | 132|  89|  NA|  NA|  2696.429|observed  |  2696.429|observed  |        NA|missing         |        NA|missing         |    NA|    NA|
-|2         |train | 2570.714| 2627.571|  56.85714|FALSE    |observed | 136|  90|  NA|  NA|  2570.714|observed  |  2570.714|observed  |        NA|missing         |        NA|missing         |   124|    80|
-|2         |train | 2627.571| 2710.571|  83.00000|FALSE    |observed | 124|  80|  NA|  NA|  2627.571|observed  |  2627.571|observed  |        NA|missing         |        NA|missing         |   128|    86|
-|2         |train | 2710.571| 2813.000| 102.42857|FALSE    |observed | 128|  86|  NA|  NA|  2710.571|observed  |  2710.571|observed  |        NA|missing         |        NA|missing         |   135|    86|
-|2         |train | 2813.000| 2885.286|  72.28571|FALSE    |observed | 135|  86|  NA|  NA|  2813.000|observed  |  2813.000|observed  |        NA|missing         |        NA|missing         |   137|    92|
-|2         |train | 2885.286| 2947.571|  62.28571|FALSE    |observed | 137|  92| 112|  60|  2885.286|observed  |  2885.286|observed  |  2853.571|carried_forward |  2853.571|carried_forward |   116|    82|
-|2         |train | 2947.571| 2985.571|  38.00000|FALSE    |observed | 116|  82|  NA|  NA|  2947.571|observed  |  2947.571|observed  |        NA|missing         |        NA|missing         |   131|    88|
-
-
 
