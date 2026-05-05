@@ -16,12 +16,16 @@ suppressPackageStartupMessages({
 })
 ```
 
-This tutorial shows how to go from a single-agent simulation (Tutorial 01) to a
-full **fleet-level forecast**. By the end you will be able to:
-- build a heterogeneous cohort of delivery agents,
+This tutorial shows how to go from a single-entity simulation (Tutorial 01) to
+**cohort-level forecasting** across many independent entities. This is not an
+agent-based model (ABM): couriers do not interact with each other here. A
+future ABM tutorial will cover interacting entities and shared environments.
+
+By the end you will be able to:
+- build a heterogeneous cohort of couriers,
 - run the cohort through an 8-hour shift,
-- generate probabilistic forecasts of delivery events and battery state across
-  the fleet.
+- generate probabilistic forecasts of delivery events and battery state,
+- summarize aggregate fleet outcomes (for example, total deliveries over the shift).
 
 We use the urban food delivery model throughout. If you haven't worked through
 [01_core_engine_scaffold.md](01_core_engine_scaffold.md), start there — it
@@ -44,13 +48,17 @@ A **cohort** is just a named list of `Entity` objects. Each agent starts its
 shift with a different battery level, home zone, and starting state — exactly
 the kind of heterogeneity you see in a real fleet.
 
+This is also where you can plug in a synthetic population generator if you have
+one. For example, you might sample initial state from external population
+distributions, then instantiate one `Entity` per sampled courier profile.
+
 ```{r}
 set.seed(2026)
 
-n_agents <- 20
+n_couriers <- 20
 shared_schema <- delivery_schema()
 
-agents <- lapply(seq_len(n_agents), function(i) {
+couriers <- lapply(seq_len(n_couriers), function(i) {
   Entity$new(
     id   = paste0("driver_", sprintf("%02d", i)),
     init = list(
@@ -61,30 +69,31 @@ agents <- lapply(seq_len(n_agents), function(i) {
       dispatch_mode = "idle"
     ),
     schema      = shared_schema,
-    entity_type = "delivery_agent",
+    entity_type = "courier",
     time0       = 0
   )
 })
-names(agents) <- vapply(agents, function(e) e$id, character(1))
+names(couriers) <- sapply(couriers, function(e) e$id)
 ```
 
 Quick sanity check — the fleet's starting battery distribution:
 
 ```{r}
-batteries <- vapply(agents, function(e) e$current$battery_pct, numeric(1))
-summary(batteries)
+batteries <- sapply(couriers, function(e) e$current$battery_pct)
+battery_summary <- as.data.frame(as.list(summary(batteries)))
+knitr::kable(battery_summary, digits = 2)
 ```
 
 ## Single-agent run
 
-Before running the full cohort, let's step through one agent to see the shape
+Before running the full cohort, let's step through one courier to see the shape
 of the output. The `Engine` is constructed once from the bundle and then reused
-for every agent.
+for every courier.
 
 ```{r}
 eng <- Engine$new(bundle = delivery_bundle())
 
-out_single <- eng$run(agents[[1]], max_events = 500, return_observations = TRUE)
+out_single <- eng$run(couriers[[1]], max_events = 500, return_observations = TRUE)
 ```
 
 The result contains:
@@ -94,12 +103,12 @@ The result contains:
 
 ```{r}
 nrow(out_single$events)
-tail(out_single$observations, 5)
+knitr::kable(tail(out_single$observations, 5), digits = 3)
 out_single$entity$state(c("battery_pct", "dispatch_mode"))
 ```
 
 The final event should be `end_shift` — the model's terminal event. The battery
-will be lower than it started, and the agent may have completed several
+will be lower than it started, and the courier may have completed several
 deliveries during the shift.
 
 ## Cohort simulation
@@ -111,25 +120,50 @@ replicates per draw.
 ```{r}
 cohort_result <- run_cohort(
   eng,
-  entities     = agents,
+  entities      = couriers,
   n_param_draws = 1,
-  n_sims       = 50,
-  max_events   = 500,
-  seed         = 42
+  n_sims        = 50,
+  max_events    = 500,
+  seed          = 42
 )
 ```
 
+Here:
+- `n_param_draws = 1` uses one parameter set (no parameter uncertainty yet),
+- `n_sims = 50` runs 50 stochastic simulations per courier,
+- `max_events = 500` caps events per run for safety,
+- `seed = 42` makes the run reproducible.
+
 The result is an indexed list of run outputs. `cohort_result$index` tells you
-which entity/draw/sim each slot corresponds to.
+which courier/parameter-draw/simulation each slot corresponds to.
+
+- `sim_id` is the simulation replicate number within a courier and parameter draw.
+- `run_id` is the unique row key for each realized run.
 
 ```{r}
-head(cohort_result$index)
+knitr::kable(head(cohort_result$index))
+
+# Example aggregate: total completed deliveries per run over the shift
+delivery_counts <- sapply(cohort_result$runs, function(r) {
+  sum(r$events$event_type == "delivery_completed")
+})
+
+delivery_summary <- data.frame(
+  mean = mean(delivery_counts),
+  p25 = as.numeric(stats::quantile(delivery_counts, 0.25)),
+  p50 = as.numeric(stats::quantile(delivery_counts, 0.50)),
+  p75 = as.numeric(stats::quantile(delivery_counts, 0.75)),
+  max = max(delivery_counts)
+)
+
+knitr::kable(delivery_summary, digits = 2,
+             caption = "Total deliveries per run over 8 hours")
 ```
 
 ## Forecasting
 
-Now the real value of the ecosystem: `fluxForecast` takes the raw simulation
-output and answers probabilistic questions about the future.
+`fluxForecast` is one major part of the ecosystem. It takes raw simulation
+output and turns it into queryable probabilistic summaries of the future.
 
 ### `forecast()` — the entry point
 
@@ -138,46 +172,73 @@ functions can query. It needs the engine, the entities, and the evaluation
 times (the "horizon grid" at which we want predictions).
 
 ```{r}
-times <- seq(1, 8, by = 1)  # evaluate at hours 1 through 8
+times <- seq(0, 8, by = 1)  # include baseline hour 0 for explicit start_time
 
 fc <- forecast(
   engine   = eng,
-  entities = agents,
+  entities = couriers,
   times    = times,
-  S        = 50,       # simulation draws per entity
+  S        = 80,       # forecast simulation draws per courier
+  vars     = "battery_pct",
   seed     = 42
 )
 ```
 
+`S` controls the number of forecast draws generated inside `forecast()`. It is
+separate from `n_sims` in `run_cohort()`, which controlled the earlier example
+run. They can be the same, but they do not need to be.
+
+If you see the warning about missing `alive`, that is expected for this model.
+`fluxForecast` then derives lifecycle status from terminal events, which keeps
+time-to-event summaries such as `event_prob()` well-defined.
+
 ### `event_prob()` — probability of a delivery event
 
-"What is the probability that each agent completes at least one delivery by
+"What is the probability that each courier completes at least one delivery by
 hour *t*?"
 
 ```{r}
 ep <- event_prob(fc, event = "delivery_completed", times = times)
-head(ep)
+knitr::kable(head(ep$result), digits = 3)
 ```
 
-Each row gives an entity × time combination with the estimated probability. You
-can think of this as an "event risk" curve — it starts near 0 at t=0 and
-approaches 1 as the shift progresses (most agents do complete deliveries).
+`ep` is a `flux_event_prob` object. The per-time summary table is in
+`ep$result`.
+
+If you previously saw `spec$start_time = 1`, that happened because the forecast
+time grid started at hour 1. Here we include hour 0 in `times`, so
+`start_time` defaults to 0.
+
+By default this is an aggregate cohort risk curve. It starts near 0 at hour 0
+and approaches 1 by hour 8 (most couriers complete at least one delivery).
 
 Agents starting with low battery tend to have lower delivery probability early
 on:
 
 ```{r}
-# Compare the 5 lowest-battery agents vs the 5 highest
+# Compare the 5 lowest-battery couriers vs the 5 highest
 low_bat  <- names(sort(batteries))[1:5]
 high_bat <- names(sort(batteries, decreasing = TRUE))[1:5]
 
-ep_low  <- ep[ep$entity_id %in% low_bat & ep$time == 4, ]
-ep_high <- ep[ep$entity_id %in% high_bat & ep$time == 4, ]
+id_map <- unique(fc$run_index[, c("entity_id", "entity_tag")])
+delivery_col <- match("delivery_completed", fc$event_types)
+delivery_by_h4 <- fc$first_event_time[, delivery_col] <= 4
+
+courier_risk_h4 <- aggregate(
+  delivery_by_h4,
+  by = list(entity_id = fc$run_index$entity_id,
+            entity_tag = fc$run_index$entity_tag),
+  FUN = mean
+)
+names(courier_risk_h4)[names(courier_risk_h4) == "x"] <- "event_prob_h4"
+
+ep_low  <- courier_risk_h4[courier_risk_h4$entity_tag %in% low_bat, ]
+ep_high <- courier_risk_h4[courier_risk_h4$entity_tag %in% high_bat, ]
 
 cat("Mean P(delivery by hour 4) — low battery group: ",
-    round(mean(ep_low$prob), 3), "\n")
+  round(mean(ep_low$event_prob_h4), 3), "\n")
 cat("Mean P(delivery by hour 4) — high battery group:",
-    round(mean(ep_high$prob), 3), "\n")
+  round(mean(ep_high$event_prob_h4), 3), "\n")
 ```
 
 ### `state_summary()` — distribution of a state variable
@@ -185,8 +246,9 @@ cat("Mean P(delivery by hour 4) — high battery group:",
 "What does the battery distribution look like across the fleet at each hour?"
 
 ```{r}
-ss <- state_summary(fc, vars = "battery_pct", times = times)
-head(ss)
+ss <- state_summary(fc, vars = "battery_pct", times = times, by = "entity")
+ss_battery <- merge(ss$battery_pct, id_map, by = "entity_id", all.x = TRUE)
+knitr::kable(head(ss_battery), digits = 3)
 ```
 
 This gives you quantiles (or other summary statistics) of `battery_pct` at each
@@ -200,10 +262,12 @@ For a single agent, you can pull the underlying simulation draws to see the
 stochastic spread:
 
 ```{r}
-dr <- draws(fc, var = "battery_pct", times = times)
-# Filter to one agent
-dr_one <- dr[dr$entity_id == "driver_01", ]
-head(dr_one, 10)
+dr <- draws(fc, var = "battery_pct", times = times, start_time = 0)
+dr <- merge(dr, fc$run_index[, c("run_id", "entity_tag")], by = "run_id")
+
+# Filter to one courier
+dr_one <- dr[dr$entity_tag == "driver_01", ]
+knitr::kable(head(dr_one, 10), digits = 3)
 ```
 
 Each row is one draw × one time point. You get the full distribution rather than
@@ -224,9 +288,10 @@ eng_slow <- Engine$new(bundle = delivery_bundle(
 
 fc_slow <- forecast(
   engine   = eng_slow,
-  entities = agents,
+  entities = couriers,
   times    = times,
-  S        = 50,
+  S        = 80,
+  vars     = "battery_pct",
   seed     = 42
 )
 
@@ -237,9 +302,9 @@ Compare mean fleet-wide delivery probability at hour 4:
 
 ```{r}
 cat("Default dispatch rate — P(delivery by hour 4):",
-    round(mean(ep[ep$time == 4, "prob"]), 3), "\n")
+  round(ep$result$event_prob[ep$result$time == 4], 3), "\n")
 cat("Slow dispatch rate   — P(delivery by hour 4):",
-    round(mean(ep_slow[ep_slow$time == 4, "prob"]), 3), "\n")
+  round(ep_slow$result$event_prob[ep_slow$result$time == 4], 3), "\n")
 ```
 
 The slower dispatch rate produces a flatter event probability curve — agents
@@ -251,7 +316,7 @@ if demand drops (lower dispatch rate), how does delivery throughput change?
 
 | Concept | What you learned |
 |---------|-----------------|
-| `Entity` cohort | A named list of entities with heterogeneous starting state |
+| `Entity` cohort | A named list of couriers (independent entities) with heterogeneous starting state |
 | `run_cohort()` | Batch simulation with parameter draws and replicates |
 | `forecast()` | Wraps cohort output into a queryable forecast object |
 | `event_prob()` | Probability of a named event by time *t* |
@@ -259,6 +324,6 @@ if demand drops (lower dispatch rate), how does delivery throughput change?
 | `draws()` | Raw per-draw trajectories for detailed inspection |
 | Parameter variation | Swap `delivery_bundle(params = ...)` to test scenarios |
 
-**Next:** [04_decisions_policy.md](04_decisions_policy.md) — add decision points
+**Next:** [03_decisions_policy.md](03_decisions_policy.md) — add decision points
 and policies to the model, compare agent outcomes under different dispatch
 strategies.
