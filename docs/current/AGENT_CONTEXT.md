@@ -13,58 +13,59 @@ systems in irregular time.
 - `subrepos/`: package submodules (`fluxCore`, `fluxPrepare`, `fluxForecast`,
   `fluxValidation`, `fluxOrchestrate`, `fluxASCVD`, `fluxModelTemplate`)
 - `tests_ecosystem/`: cross-package integration harness
-- `docs/`: current docs, archived prompt corpus, release announcements, and book scaffold
-- `resources/scripts/release/release_ecosystem.sh`: coordinated release helper
+- `docs/current/`: active working docs and this file
+- `docs/archive/plans/`: archived plan documents (`v2.0_plan.md` v0.2.2, Stage 3 handoff)
+- `tutorials/`: active tutorials (`00_start_here.md`, `01_core_engine_scaffold.md`, `02_prepare_ttv.md`)
+- `tutorials/archive/`: archived tutorials 03–08 (stale/underdeveloped; to be rebuilt for v2)
+- `tutorials/src/`: Rmd/R sources for active tutorials
 
 ## Design priorities
 
 - Keep core architecture event-driven and deterministic.
 - Preserve low barrier to entry with progressive advanced capability.
 - Prefer explicit contracts over hidden coupling.
-- Maintain backward compatibility when introducing new capability layers.
 - Engine = Schema (portable, data-only) + ModelBundle (language-native) + optional runtime components.
-- `ctx` replaced by formal typed contexts in v2.0.0 (`SimContext`, `ParamContext`, `RuntimeContext`, `EnvironmentContext`).
+- `ctx` fully removed in v2.0.0. Formal typed contexts: `SimContext`, `ParamContext`, `RuntimeContext`, `EnvironmentContext`.
+- `Engine$new(bundle=)` and `load_model()` are the sole Engine construction paths. `ModelProvider`/`provider=` removed.
 
-## Current strategic themes
+## Current stage
 
-- v2.0.0 planning is the primary current focus:
-  - Full architecture plan at `docs/current/v2.0_plan.md` (v0.1.5).
-  - Stage 0 (red-flag discovery) complete; Stage 1 (contract freeze) complete; Stage 2 core implementation complete through 2A/2B (RNG normalization + policy scaffolding).
-  - Action/policy integration as first-class event stream.
-  - `ctx` replaced by formal typed contexts (`SimContext`, `ParamContext`, `RuntimeContext`, `EnvironmentContext`).
-  - No user-facing `ctx` back-compat in v2.0.0 (fail fast on `ctx`-style usage).
-  - `load_model()` replaces `ModelProvider` as the recommended assembly entry point.
-  - Trajectory logging for audit and RL compatibility via `TrajectoryRecord`.
-  - Tracking: flux issue #1 (v2.0 planning), flux issue #4 (Python portability).
+**Ecosystem hardening — pre-v2.0.0 release**
 
-## Current release state
+All architecture stages (0–6) complete. See `docs/archive/plans/v2.0_plan.md` (v0.2.2) for full history.
 
-- All 5 production packages and the flux super-repo are at **v1.11.0**. All GitHub releases are published (non-draft, non-prerelease).
-  - fluxCore v1.11.0 → tag `v1.11.0` → commit `9814f14`
-  - fluxForecast v1.11.0 → tag `v1.11.0` → commit `e37abc2`
-  - fluxPrepare v1.11.0 → tag `v1.11.0` → commit `6e37baf`
-  - fluxValidation v1.11.0 → tag `v1.11.0` → commit `4e79264`
-  - fluxOrchestrate v1.11.0 → tag `v1.11.0` → commit `c363c51`
-  - flux (super-repo) v1.11.0 → commit `35a00b7`
-- Non-production repos (fluxASCVD, fluxModelTemplate) not included in coordinated release.
-- v1.11.0 headline changes:
-  - Ecosystem-wide inline roxygen migration (flux#10 closed).
-  - fluxOrchestrate: hospital entity init failure fixed (fluxOrchestrate#1 closed).
-  - fluxForecast: `state_summary()` type dispatch extended to full numeric type family (fluxForecast#2 closed).
-  - fluxCore: full type taxonomy including `logical`, `binary`, `integer`, `count`, `nonnegative_integer`, `positive_integer`, `numeric`, `nonnegative_numeric`, `positive_numeric`, `probability`, `percent`, `categorical`, `ordinal`, `string`, `nonempty_string`.
-- Open issues after v1.11.0:
-  - `flux#1`: v2.0.0 planning — Stage 2A/2B complete; Stage 3 complete in `fluxCore` with post-Stage-3 hardening checkpoint (runtime seeding alignment + trajectory parity expansion + docs sync); Stage 4 decomposition planning is current
-  - `flux#4`: Python portability red-flag scan — Stage 0 complete, informing v2.0 design
-  - `flux#7`: plumber API scaffold — not yet started
+Remaining before v2.0.0 tag:
+- **Stage 4C** (fluxOrchestrate): test-only `ctx` → `sim_ctx`/`param_ctx` callback migration (source already clean)
+- **Ecosystem hardening**: Tier 3 ASCVD demo tests; fluxCore warn→error for legacy `ctx` formals; D/P/A coverage in fluxASCVD
+- **v2.0.0 tag + release announcement**
 
-## Next active work
+flux#4 (Python portability) closed — all red-flag findings resolved.
+flux#1 (v2.0 planning) pending final hardening pass and v2.0.0 tag.
+flux#11 (fluxSim) is the first post-release work item.
 
-- **Stage 4 decomposition planning** (`flux#1`): produce a detailed Stage 4 plan (4A/4B/4C...) before downstream package migration begins.
-- Stage 4 code migration is paused until decomposition checkpoints and package order are approved.
-- Stage 2 delivered in `fluxCore` includes: typed context/runtime integration in `run_cohort()`, v2-mode `ctx` fail-fast for cohort path, policy dispatch at schema decision points, and deterministic Stage 2A/2B test coverage.
-- Stage 3 hardening checkpoint includes: RuntimeContext seed handling in `Engine$run()`, trajectory parity checks for serial vs `future` backend, and synchronized trajectory return/docs contracts.
-- Current `fluxCore` baseline (post-hardening): `FAIL 0 | WARN 7 | SKIP 0 | PASS 326`.
-- `flux#7` (plumber API scaffold) is open but not scheduled.
+## Current test baselines (2026-05-05)
+
+| Package | Result |
+|---------|--------|
+| fluxCore (`feature/v2-core-skeleton`) | FAIL 0 \| WARN 3 \| SKIP 2 \| PASS 337 |
+| fluxPrepare | FAIL 0 \| WARN 0 \| SKIP 4 \| PASS 150 |
+| fluxForecast | FAIL 0 \| WARN 0 \| SKIP 0 \| PASS 59 |
+| fluxValidation | FAIL 0 \| WARN 0 \| SKIP 0 \| PASS 48 |
+| fluxOrchestrate | FAIL 0 \| WARN 0 \| SKIP 0 \| PASS 42 |
+| fluxModelTemplate | FAIL 0 \| WARN 0 \| SKIP 0 \| PASS 31 |
+| Tier 1 smoke | PASS |
+| Tier 2 (all packages) | PASS |
+
+## Branch state
+
+- `fluxCore`: `feature/v2-core-skeleton` (not yet merged to main; v2.0 release will merge)
+- All other packages: `main`
+
+## Key open issues
+
+- `flux#1`: v2.0.0 planning — Stage 4C + hardening remain; #11 referenced for post-release
+- `flux#7`: plumber API scaffold — not yet scheduled
+- `flux#11`: fluxSim design proposal — first post-v2.0.0 work item
 
 ## Collaboration norms
 
