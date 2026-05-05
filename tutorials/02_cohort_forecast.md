@@ -241,13 +241,8 @@ knitr::kable(head(ep$result), digits = 3)
 
 
 `ep` is a `flux_event_prob` object. The per-time summary table is in
-`ep$result`.
-
-If you previously saw `spec$start_time = 1`, that happened because the forecast
-time grid started at hour 1. Here we include hour 0 in `times`, so
-`start_time` defaults to 0.
-
-By default this is an aggregate cohort risk curve. It starts at exactly 0 at
+`ep$result`. By default this is an aggregate cohort risk curve. It starts at
+exactly 0 at
 hour 0 (no courier can have completed a delivery before the shift starts) and
 approaches 1 by hour 8 (most couriers complete at least one delivery).
 
@@ -259,34 +254,33 @@ approaches 1 by hour 8 (most couriers complete at least one delivery).
 
 
 ``` r
-id_map <- fc$run_index |> distinct(entity_id, entity_tag)
-
 ss <- state_summary(fc, vars = "battery_pct", times = times)
-knitr::kable(ss$battery_pct, digits = 2)
+
+# draws() gives us the individual values — use them for a richer plot
+dr_all <- draws(fc, var = "battery_pct", times = times, start_time = 0)
+
+dr_all |>
+  filter(time < 8) |>           # hour 8: all couriers have ended shift (no data)
+  mutate(hour = factor(time)) |>
+  ggplot(aes(x = value, y = hour, fill = hour)) +
+  ggplot2::geom_violin(show.legend = FALSE, colour = NA, alpha = 0.8) +
+  ggplot2::geom_boxplot(width = 0.15, outlier.shape = NA, show.legend = FALSE,
+                        colour = "grey30") +
+  labs(x = "Battery (%)", y = "Hour",
+       title = "Fleet battery distribution over an 8-hour shift") +
+  theme_minimal()
 ```
 
+<div class="figure">
+<img src="figure/battery-ridges-1.png" alt="Violin plot of fleet battery_pct at each hour"  />
+<p class="caption">plot of chunk battery-ridges</p>
+</div>
 
-
-| time|    n|  mean|    sd|   min|    q1| median|    q3|   max|
-|----:|----:|-----:|-----:|-----:|-----:|------:|-----:|-----:|
-|    0| 1600| 69.91| 12.42| 50.27| 61.30|  68.81| 78.15| 95.55|
-|    1| 1600| 66.81| 13.55| 13.25| 57.53|  65.89| 77.26| 95.55|
-|    2| 1600| 62.33| 13.55| 11.40| 53.34|  61.34| 70.81| 95.55|
-|    3| 1600| 58.00| 13.87| 11.25| 48.30|  57.98| 66.33| 95.55|
-|    4| 1600| 53.78| 14.20|  5.75| 44.07|  54.33| 62.29| 95.55|
-|    5| 1600| 50.38| 14.57|  4.76| 40.66|  50.61| 58.85| 95.55|
-|    6| 1600| 46.82| 15.05|  0.00| 36.51|  46.57| 56.31| 91.63|
-|    7| 1600| 43.06| 15.25|  0.00| 32.40|  43.17| 52.59| 88.84|
-|    8|    0|    NA|    NA|    NA|    NA|     NA|    NA|    NA|
-
-
-
-`state_summary()` with the default `by = "run"` summarises across all draws and
-all couriers at each time point. As the shift progresses the median shifts left
-— the fleet drains battery at different rates depending on dispatch and delivery
-intensity. The spread (q1–q3) captures variation *across couriers*; the low `sd`
-per individual entity reflects that battery drain is deterministic given a
-trajectory (it is the *timing* of events that is stochastic).
+`state_summary()` with the default `by = "run"` returns per-time quantiles
+across all draws and couriers. The fleet-wide median drops steadily; the
+widening spread reflects couriers diverging as some get more assignments than
+others. Hour 8 has no data because all couriers hit `end_shift` before that
+tick — the terminal event removes them from the at-risk pool.
 
 ### `draws()` — inspect raw trajectories
 
