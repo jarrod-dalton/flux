@@ -124,7 +124,7 @@ tryCatch({
     t0 = 0
   )
 
-  val <- validate_event_risk(ep, obs_grid, event = "VISIT", start_time = 0, obs_mode = "policy")
+  val <- validate_event_risk(ep, obs_grid, event = "VISIT", start_time = 0, obs_mode = "fixed_cohort")
   stopifnot(inherits(ep, "flux_event_prob"), is.list(val), nrow(ep$result) > 0, nrow(val$comparison) > 0)
   pass(sprintf("Validation comparison rows=%d", nrow(val$comparison)))
 }, error = function(e) {

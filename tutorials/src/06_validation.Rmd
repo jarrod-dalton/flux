@@ -1,0 +1,331 @@
+---
+title: "Validation"
+maturity: "draft"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Validation}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+suppressPackageStartupMessages({
+  library(fluxCore)
+  library(fluxPrepare)
+  library(fluxForecast)
+  library(fluxValidation)
+})
+```
+
+A model that can simulate is not automatically a model you should trust. The
+delivery model from Tutorial 03 produces convincing-looking trajectories, but
+until you've tested its predictions against held-out data, you don't know
+whether its rates, distributions, and state dynamics actually match reality.
+
+This tutorial closes the loop: we take the test-set intervals built in Tutorial
+05, forecast from each agent's reconstructed state, and compare predictions
+against observed outcomes. By the end you will be able to:
+
+- reconstruct test-set entities at their forecast anchor times,
+- generate probabilistic forecasts from those baselines,
+- build an observed outcome grid for comparison,
+- run `validate_event_risk()` to assess calibration and discrimination,
+- run `validate_state_point()` to compare predicted vs observed state.
+
+## Setup and data preparation
+
+We regenerate the same data pipeline from Tutorial 05. In practice you'd save
+the TTV to disk; here we re-run for self-containedness.
+
+```{r}
+source("tutorials/model/urban_delivery.R")
+source("tutorials/model/urban_delivery_data.R")
+
+set.seed(42)
+ops <- generate_delivery_log(n_agents = 30, n_shifts = 8)
+
+splits <- generate_splits(ops$entities, train_frac = 0.6, test_frac = 0.2,
+                          seed = 123)
+
+events_prep <- prepare_events(
+  events    = ops$events,
+  id_col    = "entity_id",
+  time_col  = "time",
+  type_col  = "event_type",
+  time_spec = time_spec(unit = "hours")
+)
+
+battery_spec <- list(
+  id_col   = "entity_id",
+  time_col = "time",
+  vars     = "battery_pct"
+)
+
+obs_prep <- prepare_observations(
+  tables    = list(battery = ops$observations),
+  specs     = list(battery = battery_spec),
+  time_spec = time_spec(unit = "hours")
+)
+
+splits_prep <- prepare_splits(splits, id_col = "entity_id", split_col = "split")
+
+delivery_ep_spec <- spec_event_process(
+  event_types = "delivery_completed",
+  name        = "delivery_completion",
+  t0_strategy = "followup_start"
+)
+
+ttv <- build_ttv_event_process(
+  events       = events_prep,
+  observations = obs_prep,
+  splits       = splits_prep,
+  spec         = delivery_ep_spec,
+  followup     = ops$followup,
+  time_spec    = time_spec(unit = "hours")
+)
+```
+
+## The test set
+
+Each row in `ttv$test` represents one agent × one shift interval:
+
+```{r}
+head(ttv[ttv$split == "test", ])
+cat("Test-set intervals:", sum(ttv$split == "test"), "\n")
+cat("Outcome rate:      ", round(mean(ttv$event_occurred[ttv$split == "test"]), 3), "\n")
+```
+
+The `event_occurred` column is TRUE if the agent completed at least one delivery
+during the interval. The outcome rate tells us how "easy" the prediction
+task is — if it's close to 1.0, nearly everyone completes a delivery (which is
+expected for an 8-hour shift).
+
+## Reconstruct agent state at t₀
+
+For each test-set interval, we need the agent's state at the forecast anchor
+time. `reconstruct_state_at()` pulls the last observed battery_pct before t₀:
+
+```{r}
+ttv_test <- ttv[ttv$split == "test", ]
+
+state_at_t0 <- reconstruct_state_at(
+  anchors      = ttv_test[, c("entity_id", "t0")],
+  observations = obs_prep,
+  vars         = "battery_pct",
+  id_col       = "entity_id",
+  time_col     = "t0",
+  time_spec    = time_spec(unit = "hours")
+)
+
+head(state_at_t0)
+```
+
+Now build Entity objects from these reconstructed states:
+
+```{r}
+shared_schema <- delivery_schema()
+
+test_entities <- lapply(seq_len(nrow(state_at_t0)), function(i) {
+  row <- state_at_t0[i, ]
+  battery <- if (is.na(row$battery_pct)) 80 else row$battery_pct
+
+  Entity$new(
+    id          = row$entity_id,
+    init = list(
+      battery_pct   = battery,
+      route_zone    = "urban",    # default; could be reconstructed too
+      payload_kg    = 0,
+      dispatch_mode = "idle"
+    ),
+    schema      = shared_schema,
+    entity_type = "delivery_agent",
+    time0       = row$t0
+  )
+})
+names(test_entities) <- state_at_t0$entity_id
+```
+
+## Forecast from test-set baselines
+
+Run the model forward from each reconstructed entity state:
+
+```{r}
+eng <- Engine$new(bundle = delivery_bundle())
+
+# Evaluation times: hours 1 through 8 from each entity's t0
+# For simplicity, use a fixed horizon grid relative to t0=0
+horizon <- 8
+times <- seq(1, horizon, by = 1)
+
+fc <- forecast(
+ engine   = eng,
+  entities = test_entities,
+  times    = times,
+  S        = 100,
+  seed     = 42
+)
+```
+
+## Predicted event probabilities
+
+"What does the model predict as the probability of delivery completion by
+each horizon time?"
+
+```{r}
+ep <- event_prob(fc, event = "delivery_completed", times = times)
+head(ep)
+```
+
+## Build the observed outcome grid
+
+`build_obs_grid()` aligns the actual observed events onto the same time grid
+the forecast was evaluated on. This creates the "ground truth" that predictions
+are compared against.
+```{r}
+# Subset observations to test-set entities
+test_ids <- unique(state_at_t0$entity_id)
+test_obs_df <- as.data.frame(obs_prep[obs_prep$entity_id %in% test_ids,
+                                       c("entity_id", "time", "battery_pct")])
+test_events <- events_prep[events_prep$entity_id %in% test_ids, ]
+
+obs_grid <- build_obs_grid(
+  vars           = list(battery = test_obs_df),
+  events         = test_events,
+  times          = times,
+  t0             = 0,
+  start_time     = 0,
+  time_spec      = time_spec(unit = "hours"),
+  id_col         = "entity_id",
+  time_col       = "time",
+  event_time_col = "time",
+  event_type_col = "event_type"
+)
+```
+
+Each row in the obs_grid says: "for entity X, did event Y occur by time Z?"
+This is the binary ground truth that `validate_event_risk()` compares against
+the predicted probabilities.
+
+## `validate_event_risk()` — calibration and discrimination
+
+The core validation function compares predicted event probabilities against
+observed binary outcomes:
+
+```{r}
+vr <- validate_event_risk(
+  pred     = ep,
+  obs      = obs_grid,
+  event    = "delivery_completed",
+  times    = times
+)
+```
+
+The result contains calibration and discrimination metrics:
+
+```{r}
+str(vr, max.level = 1)
+```
+
+### Calibration
+
+Calibration asks: "when the model predicts 70% probability, does the event
+actually occur ~70% of the time?"
+
+```{r}
+if (!is.null(vr$calibration)) {
+  print(vr$calibration)
+}
+```
+
+Perfect calibration means the predicted probability matches the observed
+frequency in each bin. Systematic over-prediction (predicted > observed) suggests
+the model's rates are too aggressive; under-prediction suggests they're too
+conservative.
+
+### Discrimination
+
+Discrimination asks: "can the model distinguish agents who will complete a
+delivery from those who won't?"
+
+```{r}
+if (!is.null(vr$discrimination)) {
+  cat("C-statistic:", round(vr$discrimination$c_stat, 3), "\n")
+}
+```
+
+A C-statistic of 0.5 means no discrimination (random guessing); 1.0 means
+perfect separation. For our synthetic data (where the model generated the data),
+we expect strong discrimination. In real applications, this is where model
+deficiencies show up.
+
+## `validate_state_point()` — predicted vs observed state
+
+Beyond event probabilities, we can compare the model's predicted battery
+distribution against what was actually observed. This validates the state
+dynamics, not just the event timing.
+
+```{r}
+# Get predicted state distribution
+ss <- state_summary(fc, vars = "battery_pct", times = times)
+
+# Get observed battery values from the test-set observations
+test_ids <- unique(state_at_t0$entity_id)
+test_obs <- obs_prep[obs_prep$entity_id %in% test_ids, ]
+
+vs <- validate_state_point(
+  pred       = ss,
+  obs        = test_obs,
+  var        = "battery_pct",
+  times      = times,
+  start_time = 0
+)
+
+if (!is.null(vs)) {
+  str(vs, max.level = 1)
+}
+```
+
+## Interpreting miscalibration
+
+When validation reveals miscalibration, the model is telling you something
+specific. For the delivery model, common failure modes:
+
+| Observation | Likely cause | Fix |
+|-------------|-------------|-----|
+| Over-prediction of delivery events | `delivery_rate_base` too high | Lower the rate; check if real-world completion times are longer |
+| Under-prediction early in shift | `dispatch_rate_base` too low for the first hour | Consider time-varying dispatch rates |
+| Battery drains too fast in model | `delivery_battery_drop_mean` too high | Calibrate against real sensor data |
+| Battery drains too slow | Missing energy-consuming processes (e.g., GPS, AC) | Add an ambient drain process |
+
+The feedback loop: **observed outcomes → identify miscalibrated parameters →
+update `delivery_bundle(params = ...)` → re-validate**. This is the core
+model development cycle that flux supports.
+
+## Summary
+
+| Function | Purpose |
+|----------|---------|
+| `reconstruct_state_at()` | Recover agent state at forecast anchor from history |
+| `forecast()` | Run model forward from test-set baselines |
+| `event_prob()` | Predicted probability of named event by time *t* |
+| `build_obs_grid()` | Align observed events onto evaluation time grid |
+| `validate_event_risk()` | Compare predicted probabilities vs observed outcomes |
+| `validate_state_point()` | Compare predicted state distribution vs observed |
+
+This is the complete prediction–validation loop. The same pattern applies
+regardless of domain: reconstruct state → forecast → compare → iterate.
+
+**The tutorial suite so far:**
+
+| # | Tutorial | Packages |
+|---|----------|----------|
+| 01 | Engine and ModelBundle scaffold | fluxCore |
+| 03 | Cohort simulation and forecast | fluxCore, fluxForecast |
+| 04 | Decision points and policy | fluxCore |
+| 05 | Preparing operational data | fluxCore, fluxPrepare |
+| 06 | Validation (this tutorial) | fluxCore, fluxPrepare, fluxForecast, fluxValidation |
+
+Together these cover the full lifecycle: define a model → simulate cohorts →
+add decisions → prepare real data → validate predictions. The ecosystem is
+designed so each piece slots into this pipeline without custom glue code.

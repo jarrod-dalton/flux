@@ -1,0 +1,224 @@
+# ==============================================================================
+# Urban Food Delivery — Synthetic Operational Data Generator
+# ==============================================================================
+#
+# Generates a realistic synthetic operational log for a delivery fleet.
+# Produces the raw data that fluxPrepare ingests in Tutorial 05.
+#
+# Output: a list with four data frames:
+#   $entities     - agent registry (entity_id, vehicle_type, home_zone)
+#   $observations - irregular battery readings (entity_id, time, battery_pct)
+#   $events       - delivery completion events (entity_id, time, event_type)
+#   $followup     - shift-level follow-up windows (entity_id, shift_id,
+#                   followup_start, followup_end)
+#
+# Usage:
+#   source("tutorials/model/urban_delivery_data.R")
+#   set.seed(42)
+#   ops <- generate_delivery_log(n_agents = 50, n_shifts = 10)
+#
+# No dependencies beyond base R and fluxCore (for Entity + Engine).
+# ==============================================================================
+
+
+#' Generate a synthetic delivery fleet operational log.
+#'
+#' @param n_agents   Number of delivery agents in the fleet.
+#' @param n_shifts   Number of shifts to simulate per agent.
+#' @param params     Optional list of delivery model parameters (passed to
+#'                   delivery_bundle). Use this to vary fleet behavior.
+#' @param shift_gap  Hours between shifts (rest period). Default 16.
+#' @param obs_rate   Mean battery observations per hour (Poisson process for
+#'                   sensor pings). Default 2.
+#' @param seed       Optional seed for full reproducibility. If NULL, uses
+#'                   current RNG state.
+#'
+#' @return A list with components: entities, observations, events, followup.
+generate_delivery_log <- function(n_agents = 50,
+                                  n_shifts = 10,
+                                  params = list(),
+                                  shift_gap = 16,
+                                  obs_rate = 2,
+                                  seed = NULL) {
+
+  if (!is.null(seed)) set.seed(seed)
+
+  # -- Require the model definition to be already sourced --
+
+  if (!exists("delivery_bundle", mode = "function")) {
+    stop("delivery_bundle() not found. Source 'urban_delivery.R' before calling this function.",
+         call. = FALSE)
+  }
+
+  # -- Agent registry --
+  vehicle_types <- c("ebike", "scooter", "van")
+  vehicle_probs <- c(0.50, 0.35, 0.15)
+  zones         <- c("urban", "suburban", "rural")
+  zone_probs    <- c(0.55, 0.30, 0.15)
+
+  entities <- data.frame(
+    entity_id    = paste0("agent_", sprintf("%03d", seq_len(n_agents))),
+    vehicle_type = sample(vehicle_types, n_agents, replace = TRUE, prob = vehicle_probs),
+    home_zone    = sample(zones, n_agents, replace = TRUE, prob = zone_probs),
+    stringsAsFactors = FALSE
+  )
+
+  # -- Simulate shifts using the delivery model --
+  bundle <- delivery_bundle(params)
+  eng    <- fluxCore::Engine$new(bundle = bundle)
+  schema <- delivery_schema()
+
+  shift_length <- if (!is.null(params$shift_length_hours)) {
+    as.numeric(params$shift_length_hours)
+  } else {
+    8
+  }
+
+  all_obs    <- vector("list", n_agents * n_shifts)
+  all_events <- vector("list", n_agents * n_shifts)
+  all_fu     <- vector("list", n_agents * n_shifts)
+  idx        <- 0L
+
+  for (i in seq_len(n_agents)) {
+    agent_id <- entities$entity_id[i]
+    zone     <- entities$home_zone[i]
+
+    for (s in seq_len(n_shifts)) {
+      idx <- idx + 1L
+
+      # Shift start time: continuous hours from fleet origin
+      shift_start <- (s - 1) * (shift_length + shift_gap)
+
+      # Starting battery: not always 100 (varies by vehicle wear)
+      start_battery <- min(100, max(60, stats::rnorm(1, mean = 95, sd = 8)))
+
+      entity <- fluxCore::Entity$new(
+        init = list(
+          route_zone    = zone,
+          battery_pct   = start_battery,
+          payload_kg    = 0,
+          dispatch_mode = "idle"
+        ),
+        schema      = schema,
+        entity_type = "delivery_agent",
+        time0       = shift_start
+      )
+
+      # Run the shift
+      out <- eng$run(entity, max_events = 500, return_observations = TRUE)
+
+      # -- Extract events (delivery completions only, for the event process) --
+      ev <- out$events
+      if (!is.null(ev) && nrow(ev) > 0L) {
+        delivery_rows <- ev[ev$event_type == "delivery_completed", , drop = FALSE]
+        if (nrow(delivery_rows) > 0L) {
+          all_events[[idx]] <- data.frame(
+            entity_id  = agent_id,
+            time       = delivery_rows$time,
+            event_type = "delivery_completed",
+            stringsAsFactors = FALSE
+          )
+        }
+      }
+
+      # -- Generate battery observations (sensor pings at irregular intervals) --
+      obs_df <- out$observations
+      if (!is.null(obs_df) && nrow(obs_df) > 0L) {
+        # Subsample: simulate sensor pings as a thinned version of the full log
+        shift_end <- max(obs_df$time)
+        shift_dur <- shift_end - shift_start
+        n_pings   <- max(1L, stats::rpois(1, lambda = obs_rate * shift_dur))
+
+        # Draw ping times uniformly within the shift
+        ping_times <- sort(stats::runif(n_pings, min = shift_start, max = shift_end))
+
+        # For each ping time, interpolate battery from the nearest prior observation
+        battery_values <- vapply(ping_times, function(tp) {
+          prior <- obs_df[obs_df$time <= tp, , drop = FALSE]
+          if (nrow(prior) == 0L) return(start_battery)
+          as.numeric(prior$battery_pct[nrow(prior)])
+        }, numeric(1))
+
+        # Add small sensor noise
+        battery_values <- pmax(0, pmin(100, battery_values + stats::rnorm(n_pings, 0, 0.5)))
+
+        all_obs[[idx]] <- data.frame(
+          entity_id   = agent_id,
+          time        = ping_times,
+          battery_pct = round(battery_values, 1),
+          stringsAsFactors = FALSE
+        )
+      }
+
+      # -- Follow-up window for this shift --
+      shift_end_actual <- if (!is.null(ev) && nrow(ev) > 0L) {
+        max(ev$time)
+      } else {
+        shift_start + shift_length
+      }
+
+      all_fu[[idx]] <- data.frame(
+        entity_id      = agent_id,
+        shift_id       = paste0(agent_id, "_shift_", s),
+        followup_start = shift_start,
+        followup_end   = shift_end_actual,
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+
+  # -- Combine --
+  observations <- do.call(rbind, Filter(Negate(is.null), all_obs))
+  events       <- do.call(rbind, Filter(Negate(is.null), all_events))
+  followup     <- do.call(rbind, Filter(Negate(is.null), all_fu))
+
+  rownames(observations) <- NULL
+  rownames(events)       <- NULL
+  rownames(followup)     <- NULL
+
+  list(
+    entities     = entities,
+    observations = observations,
+    events       = events,
+    followup     = followup
+  )
+}
+
+
+#' Create train/test/validation splits for a set of agents.
+#'
+#' Splits agents (not shifts) into groups. All shifts for a given agent
+#' belong to the same split — no data leakage across agents.
+#'
+#' @param entities   Data frame with an entity_id column.
+#' @param train_frac Fraction of agents in training set. Default 0.6.
+#' @param test_frac  Fraction in test set. Default 0.2. Remainder is validation.
+#' @param seed       Optional seed for split assignment.
+#'
+#' @return Data frame with entity_id and split columns.
+generate_splits <- function(entities,
+                            train_frac = 0.6,
+                            test_frac = 0.2,
+                            seed = NULL) {
+  if (!is.null(seed)) set.seed(seed)
+
+  n <- nrow(entities)
+  ids <- entities$entity_id
+
+  # Shuffle
+
+  perm <- sample(n)
+  n_train <- floor(n * train_frac)
+  n_test  <- floor(n * test_frac)
+
+  splits <- character(n)
+  splits[perm[seq_len(n_train)]] <- "train"
+  splits[perm[n_train + seq_len(n_test)]] <- "test"
+  splits[perm[(n_train + n_test + 1):n]] <- "validation"
+
+  data.frame(
+    entity_id = ids,
+    split     = splits,
+    stringsAsFactors = FALSE
+  )
+}

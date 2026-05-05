@@ -1,0 +1,264 @@
+---
+title: "Cohort simulation and forecast"
+maturity: "draft"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Cohort simulation and forecast}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+suppressPackageStartupMessages({
+  library(fluxCore)
+  library(fluxForecast)
+})
+```
+
+This tutorial shows how to go from a single-agent simulation (Tutorial 01) to a
+full **fleet-level forecast**. By the end you will be able to:
+- build a heterogeneous cohort of delivery agents,
+- run the cohort through an 8-hour shift,
+- generate probabilistic forecasts of delivery events and battery state across
+  the fleet.
+
+We use the urban food delivery model throughout. If you haven't worked through
+[01_core_engine_scaffold.md](01_core_engine_scaffold.md), start there — it
+covers the `Entity`, `ModelBundle`, and `Engine` concepts that this tutorial
+builds on.
+
+## Load the model
+
+The delivery model lives in a plain R script. Sourcing it gives you
+`delivery_bundle()`, `delivery_schema()`, and the individual callback functions.
+No package install required.
+
+```{r}
+source("tutorials/model/urban_delivery.R")
+```
+
+## Build a heterogeneous cohort
+
+A **cohort** is just a named list of `Entity` objects. Each agent starts its
+shift with a different battery level, home zone, and starting state — exactly
+the kind of heterogeneity you see in a real fleet.
+
+```{r}
+set.seed(2026)
+
+n_agents <- 20
+shared_schema <- delivery_schema()
+
+agents <- lapply(seq_len(n_agents), function(i) {
+  Entity$new(
+    id   = paste0("driver_", sprintf("%02d", i)),
+    init = list(
+      battery_pct   = runif(1, min = 50, max = 100),
+      route_zone    = sample(c("urban", "suburban", "rural"), 1,
+                             prob = c(0.55, 0.30, 0.15)),
+      payload_kg    = 0,
+      dispatch_mode = "idle"
+    ),
+    schema      = shared_schema,
+    entity_type = "delivery_agent",
+    time0       = 0
+  )
+})
+names(agents) <- vapply(agents, function(e) e$id, character(1))
+```
+
+Quick sanity check — the fleet's starting battery distribution:
+
+```{r}
+batteries <- vapply(agents, function(e) e$current$battery_pct, numeric(1))
+summary(batteries)
+```
+
+## Single-agent run
+
+Before running the full cohort, let's step through one agent to see the shape
+of the output. The `Engine` is constructed once from the bundle and then reused
+for every agent.
+
+```{r}
+eng <- Engine$new(bundle = delivery_bundle())
+
+out_single <- eng$run(agents[[1]], max_events = 500, return_observations = TRUE)
+```
+
+The result contains:
+- `$events` — the authoritative event log (one row per realized event)
+- `$observations` — whatever the `observe()` hook emitted
+- `$entity` — the same entity object, now mutated to post-run state
+
+```{r}
+nrow(out_single$events)
+tail(out_single$observations, 5)
+out_single$entity$state(c("battery_pct", "dispatch_mode"))
+```
+
+The final event should be `end_shift` — the model's terminal event. The battery
+will be lower than it started, and the agent may have completed several
+deliveries during the shift.
+
+## Cohort simulation
+
+`run_cohort()` runs the engine over every entity in the list, optionally with
+multiple parameter draws (for uncertainty quantification) and multiple simulation
+replicates per draw.
+
+```{r}
+cohort_result <- run_cohort(
+  eng,
+  entities     = agents,
+  n_param_draws = 1,
+  n_sims       = 50,
+  max_events   = 500,
+  seed         = 42
+)
+```
+
+The result is an indexed list of run outputs. `cohort_result$index` tells you
+which entity/draw/sim each slot corresponds to.
+
+```{r}
+head(cohort_result$index)
+```
+
+## Forecasting
+
+Now the real value of the ecosystem: `fluxForecast` takes the raw simulation
+output and answers probabilistic questions about the future.
+
+### `forecast()` — the entry point
+
+`forecast()` wraps the cohort run into a forecast object that downstream
+functions can query. It needs the engine, the entities, and the evaluation
+times (the "horizon grid" at which we want predictions).
+
+```{r}
+times <- seq(1, 8, by = 1)  # evaluate at hours 1 through 8
+
+fc <- forecast(
+  engine   = eng,
+  entities = agents,
+  times    = times,
+  S        = 50,       # simulation draws per entity
+  seed     = 42
+)
+```
+
+### `event_prob()` — probability of a delivery event
+
+"What is the probability that each agent completes at least one delivery by
+hour *t*?"
+
+```{r}
+ep <- event_prob(fc, event = "delivery_completed", times = times)
+head(ep)
+```
+
+Each row gives an entity × time combination with the estimated probability. You
+can think of this as an "event risk" curve — it starts near 0 at t=0 and
+approaches 1 as the shift progresses (most agents do complete deliveries).
+
+Agents starting with low battery tend to have lower delivery probability early
+on:
+
+```{r}
+# Compare the 5 lowest-battery agents vs the 5 highest
+low_bat  <- names(sort(batteries))[1:5]
+high_bat <- names(sort(batteries, decreasing = TRUE))[1:5]
+
+ep_low  <- ep[ep$entity_id %in% low_bat & ep$time == 4, ]
+ep_high <- ep[ep$entity_id %in% high_bat & ep$time == 4, ]
+
+cat("Mean P(delivery by hour 4) — low battery group: ",
+    round(mean(ep_low$prob), 3), "\n")
+cat("Mean P(delivery by hour 4) — high battery group:",
+    round(mean(ep_high$prob), 3), "\n")
+```
+
+### `state_summary()` — distribution of a state variable
+
+"What does the battery distribution look like across the fleet at each hour?"
+
+```{r}
+ss <- state_summary(fc, vars = "battery_pct", times = times)
+head(ss)
+```
+
+This gives you quantiles (or other summary statistics) of `battery_pct` at each
+evaluation time. As the shift progresses, the distribution shifts left — agents
+drain their batteries at different rates depending on their dispatch/delivery
+intensity.
+
+### `draws()` — inspect raw trajectories
+
+For a single agent, you can pull the underlying simulation draws to see the
+stochastic spread:
+
+```{r}
+dr <- draws(fc, var = "battery_pct", times = times)
+# Filter to one agent
+dr_one <- dr[dr$entity_id == "driver_01", ]
+head(dr_one, 10)
+```
+
+Each row is one draw × one time point. You get the full distribution rather than
+just a summary — useful for checking whether the forecast is well-behaved or if
+there are pathological outliers.
+
+## Varying model parameters
+
+One of the design goals of the bundle architecture is that you can swap
+parameters without changing any other code. Let's compare the default dispatch
+rate against a slower fleet:
+
+```{r}
+# Default: dispatch_rate_base = 0.7
+eng_slow <- Engine$new(bundle = delivery_bundle(
+  params = list(dispatch_rate_base = 0.3)
+))
+
+fc_slow <- forecast(
+  engine   = eng_slow,
+  entities = agents,
+  times    = times,
+  S        = 50,
+  seed     = 42
+)
+
+ep_slow <- event_prob(fc_slow, event = "delivery_completed", times = times)
+```
+
+Compare mean fleet-wide delivery probability at hour 4:
+
+```{r}
+cat("Default dispatch rate — P(delivery by hour 4):",
+    round(mean(ep[ep$time == 4, "prob"]), 3), "\n")
+cat("Slow dispatch rate   — P(delivery by hour 4):",
+    round(mean(ep_slow[ep_slow$time == 4, "prob"]), 3), "\n")
+```
+
+The slower dispatch rate produces a flatter event probability curve — agents
+receive fewer assignments, so fewer deliveries are completed by any given hour.
+This is exactly the kind of "what if" scenario that fleet operators care about:
+if demand drops (lower dispatch rate), how does delivery throughput change?
+
+## Summary
+
+| Concept | What you learned |
+|---------|-----------------|
+| `Entity` cohort | A named list of entities with heterogeneous starting state |
+| `run_cohort()` | Batch simulation with parameter draws and replicates |
+| `forecast()` | Wraps cohort output into a queryable forecast object |
+| `event_prob()` | Probability of a named event by time *t* |
+| `state_summary()` | Distribution of a state variable at each time point |
+| `draws()` | Raw per-draw trajectories for detailed inspection |
+| Parameter variation | Swap `delivery_bundle(params = ...)` to test scenarios |
+
+**Next:** [04_decisions_policy.md](04_decisions_policy.md) — add decision points
+and policies to the model, compare agent outcomes under different dispatch
+strategies.
