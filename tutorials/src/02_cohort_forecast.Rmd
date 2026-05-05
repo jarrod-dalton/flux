@@ -13,6 +13,8 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 suppressPackageStartupMessages({
   library(fluxCore)
   library(fluxForecast)
+  library(dplyr)
+  library(purrr)
 })
 ```
 
@@ -79,9 +81,8 @@ names(couriers) <- sapply(couriers, function(e) e$id)
 Quick sanity check — the fleet's starting battery distribution:
 
 ```{r}
-batteries <- sapply(couriers, function(e) e$current$battery_pct)
-battery_summary <- as.data.frame(as.list(summary(batteries)))
-knitr::kable(battery_summary, digits = 2)
+batteries <- map_dbl(couriers, ~ .x$current$battery_pct)
+summary(batteries)
 ```
 
 ## Single-agent run
@@ -103,10 +104,13 @@ The result contains:
 
 ```{r}
 nrow(out_single$events)
-knitr::kable(tail(out_single$observations, 5), digits = 3)
+knitr::kable(tail(out_single$observations, 5) |> tibble::rownames_to_column("obs"),
+             digits = 3)
 out_single$entity$state(c("battery_pct", "dispatch_mode"))
 ```
 
+The `observations` table rows are numbered within the observation log (here obs
+9–13 are the last five), not matched to the events log which has 14 rows total.
 The final event should be `end_shift` — the model's terminal event. The battery
 will be lower than it started, and the courier may have completed several
 deliveries during the shift.
@@ -143,21 +147,9 @@ which courier/parameter-draw/simulation each slot corresponds to.
 ```{r}
 knitr::kable(head(cohort_result$index))
 
-# Example aggregate: total completed deliveries per run over the shift
-delivery_counts <- sapply(cohort_result$runs, function(r) {
-  sum(r$events$event_type == "delivery_completed")
-})
-
-delivery_summary <- data.frame(
-  mean = mean(delivery_counts),
-  p25 = as.numeric(stats::quantile(delivery_counts, 0.25)),
-  p50 = as.numeric(stats::quantile(delivery_counts, 0.50)),
-  p75 = as.numeric(stats::quantile(delivery_counts, 0.75)),
-  max = max(delivery_counts)
-)
-
-knitr::kable(delivery_summary, digits = 2,
-             caption = "Total deliveries per run over 8 hours")
+# Aggregate: total completed deliveries per run over the shift
+delivery_counts <- map_int(cohort_result$runs, ~ sum(.x$events$event_type == "delivery_completed"))
+summary(delivery_counts)
 ```
 
 ## Forecasting
@@ -209,52 +201,29 @@ If you previously saw `spec$start_time = 1`, that happened because the forecast
 time grid started at hour 1. Here we include hour 0 in `times`, so
 `start_time` defaults to 0.
 
-By default this is an aggregate cohort risk curve. It starts near 0 at hour 0
-and approaches 1 by hour 8 (most couriers complete at least one delivery).
+By default this is an aggregate cohort risk curve. It starts at exactly 0 at
+hour 0 (no courier can have completed a delivery before the shift starts) and
+approaches 1 by hour 8 (most couriers complete at least one delivery).
 
-Agents starting with low battery tend to have lower delivery probability early
-on:
 
-```{r}
-# Compare the 5 lowest-battery couriers vs the 5 highest
-low_bat  <- names(sort(batteries))[1:5]
-high_bat <- names(sort(batteries, decreasing = TRUE))[1:5]
-
-id_map <- unique(fc$run_index[, c("entity_id", "entity_tag")])
-delivery_col <- match("delivery_completed", fc$event_types)
-delivery_by_h4 <- fc$first_event_time[, delivery_col] <= 4
-
-courier_risk_h4 <- aggregate(
-  delivery_by_h4,
-  by = list(entity_id = fc$run_index$entity_id,
-            entity_tag = fc$run_index$entity_tag),
-  FUN = mean
-)
-names(courier_risk_h4)[names(courier_risk_h4) == "x"] <- "event_prob_h4"
-
-ep_low  <- courier_risk_h4[courier_risk_h4$entity_tag %in% low_bat, ]
-ep_high <- courier_risk_h4[courier_risk_h4$entity_tag %in% high_bat, ]
-
-cat("Mean P(delivery by hour 4) — low battery group: ",
-  round(mean(ep_low$event_prob_h4), 3), "\n")
-cat("Mean P(delivery by hour 4) — high battery group:",
-  round(mean(ep_high$event_prob_h4), 3), "\n")
-```
 
 ### `state_summary()` — distribution of a state variable
 
 "What does the battery distribution look like across the fleet at each hour?"
 
 ```{r}
-ss <- state_summary(fc, vars = "battery_pct", times = times, by = "entity")
-ss_battery <- merge(ss$battery_pct, id_map, by = "entity_id", all.x = TRUE)
-knitr::kable(head(ss_battery), digits = 3)
+id_map <- fc$run_index |> distinct(entity_id, entity_tag)
+
+ss <- state_summary(fc, vars = "battery_pct", times = times)
+knitr::kable(ss$battery_pct, digits = 2)
 ```
 
-This gives you quantiles (or other summary statistics) of `battery_pct` at each
-evaluation time. As the shift progresses, the distribution shifts left — agents
-drain their batteries at different rates depending on their dispatch/delivery
-intensity.
+`state_summary()` with the default `by = "run"` summarises across all draws and
+all couriers at each time point. As the shift progresses the median shifts left
+— the fleet drains battery at different rates depending on dispatch and delivery
+intensity. The spread (q1–q3) captures variation *across couriers*; the low `sd`
+per individual entity reflects that battery drain is deterministic given a
+trajectory (it is the *timing* of events that is stochastic).
 
 ### `draws()` — inspect raw trajectories
 
@@ -262,12 +231,15 @@ For a single agent, you can pull the underlying simulation draws to see the
 stochastic spread:
 
 ```{r}
-dr <- draws(fc, var = "battery_pct", times = times, start_time = 0)
-dr <- merge(dr, fc$run_index[, c("run_id", "entity_tag")], by = "run_id")
+dr <- draws(fc, var = "battery_pct", times = times, start_time = 0) |>
+  left_join(fc$run_index |> select(run_id, entity_tag), by = "run_id")
 
-# Filter to one courier
-dr_one <- dr[dr$entity_tag == "driver_01", ]
-knitr::kable(head(dr_one, 10), digits = 3)
+# Show one draw's full trajectory for driver_01 across all hours
+dr |>
+  filter(entity_tag == "driver_01") |>
+  arrange(run_id, time) |>
+  filter(run_id == first(run_id)) |>
+  knitr::kable(digits = 2)
 ```
 
 Each row is one draw × one time point. You get the full distribution rather than

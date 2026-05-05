@@ -64,18 +64,11 @@ Quick sanity check — the fleet's starting battery distribution:
 
 
 ``` r
-batteries <- sapply(couriers, function(e) e$current$battery_pct)
-battery_summary <- as.data.frame(as.list(summary(batteries)))
-knitr::kable(battery_summary, digits = 2)
+batteries <- map_dbl(couriers, ~ .x$current$battery_pct)
+summary(batteries)
+#>    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#>   50.27   61.30   68.81   69.91   78.15   95.55
 ```
-
-
-
-|  Min.| X1st.Qu.| Median|  Mean| X3rd.Qu.|  Max.|
-|-----:|--------:|------:|-----:|--------:|-----:|
-| 50.27|     61.3|  68.81| 69.91|    78.15| 95.55|
-
-
 
 ## Single-agent run
 
@@ -99,18 +92,19 @@ The result contains:
 ``` r
 nrow(out_single$events)
 #> [1] 14
-knitr::kable(tail(out_single$observations, 5), digits = 3)
+knitr::kable(tail(out_single$observations, 5) |> tibble::rownames_to_column("obs"),
+             digits = 3)
 ```
 
 
 
-|   |  time|event_type         |process_id |route_zone | battery_pct| payload_kg|dispatch_mode |
-|:--|-----:|:------------------|:----------|:----------|-----------:|----------:|:-------------|
-|9  | 6.274|delivery_completed |delivery   |urban      |      54.904|      2.758|in_transit    |
-|10 | 6.711|dispatch_check     |dispatch   |urban      |      54.717|      3.250|assigned      |
-|11 | 6.842|delivery_completed |delivery   |urban      |      52.486|      2.509|in_transit    |
-|12 | 7.600|delivery_completed |delivery   |urban      |      47.547|      1.412|in_transit    |
-|13 | 8.000|end_shift          |end_shift  |urban      |      47.547|      1.412|idle          |
+|obs |  time|event_type         |process_id |route_zone | battery_pct| payload_kg|dispatch_mode |
+|:---|-----:|:------------------|:----------|:----------|-----------:|----------:|:-------------|
+|9   | 6.274|delivery_completed |delivery   |urban      |      54.904|      2.758|in_transit    |
+|10  | 6.711|dispatch_check     |dispatch   |urban      |      54.717|      3.250|assigned      |
+|11  | 6.842|delivery_completed |delivery   |urban      |      52.486|      2.509|in_transit    |
+|12  | 7.600|delivery_completed |delivery   |urban      |      47.547|      1.412|in_transit    |
+|13  | 8.000|end_shift          |end_shift  |urban      |      47.547|      1.412|idle          |
 
 
 
@@ -124,6 +118,8 @@ out_single$entity$state(c("battery_pct", "dispatch_mode"))
 #> [1] "idle"
 ```
 
+The `observations` table rows are numbered within the observation log (here obs
+9–13 are the last five), not matched to the events log which has 14 rows total.
 The final event should be `end_shift` — the model's terminal event. The battery
 will be lower than it started, and the courier may have completed several
 deliveries during the shift.
@@ -178,32 +174,12 @@ knitr::kable(head(cohort_result$index))
 
 ``` r
 
-# Example aggregate: total completed deliveries per run over the shift
-delivery_counts <- sapply(cohort_result$runs, function(r) {
-  sum(r$events$event_type == "delivery_completed")
-})
-
-delivery_summary <- data.frame(
-  mean = mean(delivery_counts),
-  p25 = as.numeric(stats::quantile(delivery_counts, 0.25)),
-  p50 = as.numeric(stats::quantile(delivery_counts, 0.50)),
-  p75 = as.numeric(stats::quantile(delivery_counts, 0.75)),
-  max = max(delivery_counts)
-)
-
-knitr::kable(delivery_summary, digits = 2,
-             caption = "Total deliveries per run over 8 hours")
+# Aggregate: total completed deliveries per run over the shift
+delivery_counts <- map_int(cohort_result$runs, ~ sum(.x$events$event_type == "delivery_completed"))
+summary(delivery_counts)
+#>    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#>   0.000   3.000   5.000   4.727   6.000  12.000
 ```
-
-
-
-Table: Total deliveries per run over 8 hours
-
-| mean| p25| p50| p75| max|
-|----:|---:|---:|---:|---:|
-| 4.73|   3|   5|   6|  12|
-
-
 
 ## Forecasting
 
@@ -271,40 +247,11 @@ If you previously saw `spec$start_time = 1`, that happened because the forecast
 time grid started at hour 1. Here we include hour 0 in `times`, so
 `start_time` defaults to 0.
 
-By default this is an aggregate cohort risk curve. It starts near 0 at hour 0
-and approaches 1 by hour 8 (most couriers complete at least one delivery).
-
-Agents starting with low battery tend to have lower delivery probability early
-on:
+By default this is an aggregate cohort risk curve. It starts at exactly 0 at
+hour 0 (no courier can have completed a delivery before the shift starts) and
+approaches 1 by hour 8 (most couriers complete at least one delivery).
 
 
-``` r
-# Compare the 5 lowest-battery couriers vs the 5 highest
-low_bat  <- names(sort(batteries))[1:5]
-high_bat <- names(sort(batteries, decreasing = TRUE))[1:5]
-
-id_map <- unique(fc$run_index[, c("entity_id", "entity_tag")])
-delivery_col <- match("delivery_completed", fc$event_types)
-delivery_by_h4 <- fc$first_event_time[, delivery_col] <= 4
-
-courier_risk_h4 <- aggregate(
-  delivery_by_h4,
-  by = list(entity_id = fc$run_index$entity_id,
-            entity_tag = fc$run_index$entity_tag),
-  FUN = mean
-)
-names(courier_risk_h4)[names(courier_risk_h4) == "x"] <- "event_prob_h4"
-
-ep_low  <- courier_risk_h4[courier_risk_h4$entity_tag %in% low_bat, ]
-ep_high <- courier_risk_h4[courier_risk_h4$entity_tag %in% high_bat, ]
-
-cat("Mean P(delivery by hour 4) — low battery group: ",
-  round(mean(ep_low$event_prob_h4), 3), "\n")
-#> Mean P(delivery by hour 4) — low battery group:  0.892
-cat("Mean P(delivery by hour 4) — high battery group:",
-  round(mean(ep_high$event_prob_h4), 3), "\n")
-#> Mean P(delivery by hour 4) — high battery group: 0.945
-```
 
 ### `state_summary()` — distribution of a state variable
 
@@ -312,28 +259,34 @@ cat("Mean P(delivery by hour 4) — high battery group:",
 
 
 ``` r
-ss <- state_summary(fc, vars = "battery_pct", times = times, by = "entity")
-ss_battery <- merge(ss$battery_pct, id_map, by = "entity_id", all.x = TRUE)
-knitr::kable(head(ss_battery), digits = 3)
+id_map <- fc$run_index |> distinct(entity_id, entity_tag)
+
+ss <- state_summary(fc, vars = "battery_pct", times = times)
+knitr::kable(ss$battery_pct, digits = 2)
 ```
 
 
 
-|entity_id | time|  n|   mean| sd|    min|     q1| median|     q3|    max|entity_tag |
-|:---------|----:|--:|------:|--:|------:|------:|------:|------:|------:|:----------|
-|1         |    0| 80| 84.934|  0| 84.934| 84.934| 84.934| 84.934| 84.934|driver_01  |
-|1         |    1| 80| 84.934|  0| 84.934| 84.934| 84.934| 84.934| 84.934|driver_01  |
-|1         |    2| 80| 70.806|  0| 70.806| 70.806| 70.806| 70.806| 70.806|driver_01  |
-|1         |    3| 80| 61.242|  0| 61.242| 61.242| 61.242| 61.242| 61.242|driver_01  |
-|1         |    4| 80| 56.292|  0| 56.292| 56.292| 56.292| 56.292| 56.292|driver_01  |
-|1         |    5| 80| 56.292|  0| 56.292| 56.292| 56.292| 56.292| 56.292|driver_01  |
+| time|    n|  mean|    sd|   min|    q1| median|    q3|   max|
+|----:|----:|-----:|-----:|-----:|-----:|------:|-----:|-----:|
+|    0| 1600| 69.91| 12.42| 50.27| 61.30|  68.81| 78.15| 95.55|
+|    1| 1600| 66.81| 13.55| 13.25| 57.53|  65.89| 77.26| 95.55|
+|    2| 1600| 62.33| 13.55| 11.40| 53.34|  61.34| 70.81| 95.55|
+|    3| 1600| 58.00| 13.87| 11.25| 48.30|  57.98| 66.33| 95.55|
+|    4| 1600| 53.78| 14.20|  5.75| 44.07|  54.33| 62.29| 95.55|
+|    5| 1600| 50.38| 14.57|  4.76| 40.66|  50.61| 58.85| 95.55|
+|    6| 1600| 46.82| 15.05|  0.00| 36.51|  46.57| 56.31| 91.63|
+|    7| 1600| 43.06| 15.25|  0.00| 32.40|  43.17| 52.59| 88.84|
+|    8|    0|    NA|    NA|    NA|    NA|     NA|    NA|    NA|
 
 
 
-This gives you quantiles (or other summary statistics) of `battery_pct` at each
-evaluation time. As the shift progresses, the distribution shifts left — agents
-drain their batteries at different rates depending on their dispatch/delivery
-intensity.
+`state_summary()` with the default `by = "run"` summarises across all draws and
+all couriers at each time point. As the shift progresses the median shifts left
+— the fleet drains battery at different rates depending on dispatch and delivery
+intensity. The spread (q1–q3) captures variation *across couriers*; the low `sd`
+per individual entity reflects that battery drain is deterministic given a
+trajectory (it is the *timing* of events that is stochastic).
 
 ### `draws()` — inspect raw trajectories
 
@@ -342,28 +295,29 @@ stochastic spread:
 
 
 ``` r
-dr <- draws(fc, var = "battery_pct", times = times, start_time = 0)
-dr <- merge(dr, fc$run_index[, c("run_id", "entity_tag")], by = "run_id")
+dr <- draws(fc, var = "battery_pct", times = times, start_time = 0) |>
+  left_join(fc$run_index |> select(run_id, entity_tag), by = "run_id")
 
-# Filter to one courier
-dr_one <- dr[dr$entity_tag == "driver_01", ]
-knitr::kable(head(dr_one, 10), digits = 3)
+# Show one draw's full trajectory for driver_01 across all hours
+dr |>
+  filter(entity_tag == "driver_01") |>
+  arrange(run_id, time) |>
+  filter(run_id == first(run_id)) |>
+  knitr::kable(digits = 2)
 ```
 
 
 
-|run_id | time|  value|entity_tag |
-|:------|----:|------:|:----------|
-|run_1  |    0| 84.934|driver_01  |
-|run_1  |    6| 56.292|driver_01  |
-|run_1  |    4| 56.292|driver_01  |
-|run_1  |    2| 70.806|driver_01  |
-|run_1  |    1| 84.934|driver_01  |
-|run_1  |    3| 61.242|driver_01  |
-|run_1  |    7| 52.486|driver_01  |
-|run_1  |    5| 56.292|driver_01  |
-|run_10 |    4| 56.292|driver_01  |
-|run_10 |    2| 70.806|driver_01  |
+|run_id | time| value|entity_tag |
+|:------|----:|-----:|:----------|
+|run_1  |    0| 84.93|driver_01  |
+|run_1  |    1| 84.93|driver_01  |
+|run_1  |    2| 70.81|driver_01  |
+|run_1  |    3| 61.24|driver_01  |
+|run_1  |    4| 56.29|driver_01  |
+|run_1  |    5| 56.29|driver_01  |
+|run_1  |    6| 56.29|driver_01  |
+|run_1  |    7| 52.49|driver_01  |
 
 
 
