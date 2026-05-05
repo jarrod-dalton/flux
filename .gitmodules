@@ -13,9 +13,6 @@
 [submodule "fluxOrchestrate"]
 	path = subrepos/fluxOrchestrate
 	url = https://github.com/jarrod-dalton/fluxOrchestrate.git
-[submodule "fluxASCVD"]
-	path = subrepos/fluxASCVD
-	url = https://github.com/jarrod-dalton/fluxASCVD.git
 [submodule "fluxModelTemplate"]
 	path = subrepos/fluxModelTemplate
 	url = https://github.com/jarrod-dalton/fluxModelTemplate.git

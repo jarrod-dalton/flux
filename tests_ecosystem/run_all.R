@@ -2,8 +2,8 @@
 
 tier_scripts <- c(
   tier1 = "run_tier1_smoke.R",
-  tier2 = "run_tier2_package_tests.R",
-  tier3 = "run_tier3_ascvd_demo.R"
+  tier2 = "run_tier2_package_tests.R"
+  # tier3 = "run_tier3_delivery_demo.R"  # pending: urban delivery demo (see flux#1)
 )
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) == 0L) {
