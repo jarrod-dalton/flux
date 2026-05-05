@@ -87,18 +87,13 @@ eng <- Engine$new(bundle = delivery_bundle())
 
 courier_01_demo <- Entity$new(
   id          = "courier_01",
-  init        = list(battery_pct = couriers[["courier_01"]]$init$battery_pct,
-                     route_zone  = couriers[["courier_01"]]$init$route_zone,
-                     payload_kg  = 0,
-                     dispatch_mode = "idle"),
+  init        = couriers[["courier_01"]]$current,
   schema      = shared_schema,
   entity_type = "courier",
   time0       = 0
 )
-#> Error: Value for 'route_zone' must be a scalar.
 
 out_single <- eng$run(courier_01_demo, max_events = 500, return_observations = TRUE)
-#> Error: object 'courier_01_demo' not found
 ```
 
 The result contains:
@@ -109,12 +104,31 @@ The result contains:
 
 ``` r
 nrow(out_single$events)
-#> Error: object 'out_single' not found
+#> [1] 13
 knitr::kable(tail(out_single$observations, 5) |> tibble::rownames_to_column("obs"),
              digits = 3)
-#> Error: object 'out_single' not found
+```
+
+
+
+|obs |  time|event_type         |process_id |route_zone | battery_pct| payload_kg|dispatch_mode |
+|:---|-----:|:------------------|:----------|:----------|-----------:|----------:|:-------------|
+|8   | 5.364|dispatch_check     |dispatch   |suburban   |      57.306|      6.310|assigned      |
+|9   | 5.717|delivery_completed |delivery   |suburban   |      48.676|      4.602|in_transit    |
+|10  | 6.643|delivery_completed |delivery   |suburban   |      46.404|      3.028|in_transit    |
+|11  | 7.182|delivery_completed |delivery   |suburban   |      45.524|      2.531|in_transit    |
+|12  | 8.000|end_shift          |end_shift  |suburban   |      45.524|      2.531|idle          |
+
+
+
+``` r
 out_single$entity$state(c("battery_pct", "dispatch_mode"))
-#> Error: object 'out_single' not found
+#> <flux_state>
+#> $battery_pct
+#> [1] 45.52351
+#> 
+#> $dispatch_mode
+#> [1] "idle"
 ```
 
 The `observations` table rows are numbered within the observation log (here obs
@@ -173,7 +187,7 @@ knitr::kable(head(cohort_result$index))
 
 ``` r
 
-# Aggregate: total completed deliveries per run over the shift
+# Deliveries per courier per simulated shift
 delivery_counts <- map_int(cohort_result$runs, ~ sum(.x$events$event_type == "delivery_completed"))
 summary(delivery_counts)
 #>    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
@@ -217,12 +231,18 @@ time-to-event summaries such as `event_prob()` well-defined.
 
 ### `event_prob()` — probability of a delivery event
 
-"What is the probability that each courier completes at least one delivery by
-hour *t*?"
+"What fraction of couriers complete at least one delivery by hour *t*,
+averaged over simulation replicates?"
+
+The correct estimator for a repeated-simulation cohort study averages
+*within-simulation* proportions across replications, rather than pooling all
+entity-run pairs into a single denominator. `by = "sim"` does exactly that:
+for each of the 100 simulation draws it computes the fraction of the 50-courier
+cohort who had the event by time *t*, then averages those 100 proportions.
 
 
 ``` r
-ep <- event_prob(fc, event = "delivery_completed", times = times)
+ep <- event_prob(fc, event = "delivery_completed", times = times, by = "sim")
 knitr::kable(head(ep$result), digits = 3)
 ```
 
@@ -230,19 +250,19 @@ knitr::kable(head(ep$result), digits = 3)
 
 | time| n_eligible| n_events| event_prob|  risk|
 |----:|----------:|--------:|----------:|-----:|
-|    0|       5000|        0|      0.000| 0.000|
-|    1|       5000|     1579|      0.316| 0.316|
-|    2|       5000|     3091|      0.618| 0.618|
-|    3|       5000|     4007|      0.801| 0.801|
-|    4|       5000|     4536|      0.907| 0.907|
-|    5|       5000|     4782|      0.956| 0.956|
+|    0|         50|        0|      0.000| 0.000|
+|    1|         50|       16|      0.316| 0.316|
+|    2|         50|       31|      0.618| 0.618|
+|    3|         50|       40|      0.801| 0.801|
+|    4|         50|       45|      0.907| 0.907|
+|    5|         50|       48|      0.956| 0.956|
 
 
 
-`ep` is a `flux_event_prob` object. `ep$result` is a cohort-level risk curve
-aggregated across all 50 couriers × 100 simulation runs (5,000 runs total). It
-starts at exactly 0 at hour 0 and approaches 1 by hour 8 — most couriers
-complete at least one delivery.
+`ep$result` columns: `time`, `n_eligible` (average couriers eligible per
+simulation draw), `n_events` (average events per draw), and `event_prob`
+(mean proportion across draws). The curve starts at 0 at hour 0 and
+approaches 1 by hour 8.
 
 
 

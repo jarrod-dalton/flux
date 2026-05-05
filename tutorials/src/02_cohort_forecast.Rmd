@@ -102,10 +102,7 @@ eng <- Engine$new(bundle = delivery_bundle())
 
 courier_01_demo <- Entity$new(
   id          = "courier_01",
-  init        = list(battery_pct = couriers[["courier_01"]]$init$battery_pct,
-                     route_zone  = couriers[["courier_01"]]$init$route_zone,
-                     payload_kg  = 0,
-                     dispatch_mode = "idle"),
+  init        = couriers[["courier_01"]]$current,
   schema      = shared_schema,
   entity_type = "courier",
   time0       = 0
@@ -164,7 +161,7 @@ which courier/parameter-draw/simulation each slot corresponds to.
 ```{r}
 knitr::kable(head(cohort_result$index))
 
-# Aggregate: total completed deliveries per run over the shift
+# Deliveries per courier per simulated shift
 delivery_counts <- map_int(cohort_result$runs, ~ sum(.x$events$event_type == "delivery_completed"))
 summary(delivery_counts)
 ```
@@ -203,18 +200,24 @@ time-to-event summaries such as `event_prob()` well-defined.
 
 ### `event_prob()` — probability of a delivery event
 
-"What is the probability that each courier completes at least one delivery by
-hour *t*?"
+"What fraction of couriers complete at least one delivery by hour *t*,
+averaged over simulation replicates?"
+
+The correct estimator for a repeated-simulation cohort study averages
+*within-simulation* proportions across replications, rather than pooling all
+entity-run pairs into a single denominator. `by = "sim"` does exactly that:
+for each of the 100 simulation draws it computes the fraction of the 50-courier
+cohort who had the event by time *t*, then averages those 100 proportions.
 
 ```{r}
-ep <- event_prob(fc, event = "delivery_completed", times = times)
+ep <- event_prob(fc, event = "delivery_completed", times = times, by = "sim")
 knitr::kable(head(ep$result), digits = 3)
 ```
 
-`ep` is a `flux_event_prob` object. `ep$result` is a cohort-level risk curve
-aggregated across all 50 couriers × 100 simulation runs (5,000 runs total). It
-starts at exactly 0 at hour 0 and approaches 1 by hour 8 — most couriers
-complete at least one delivery.
+`ep$result` columns: `time`, `n_eligible` (average couriers eligible per
+simulation draw), `n_events` (average events per draw), and `event_prob`
+(mean proportion across draws). The curve starts at 0 at hour 0 and
+approaches 1 by hour 8.
 
 
 
