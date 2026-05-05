@@ -39,12 +39,12 @@ distributions, then instantiate one `Entity` per sampled courier profile.
 ``` r
 set.seed(2026)
 
-n_couriers <- 20
+n_couriers <- 50
 shared_schema <- delivery_schema()
 
 couriers <- lapply(seq_len(n_couriers), function(i) {
   Entity$new(
-    id   = paste0("driver_", sprintf("%02d", i)),
+    id   = paste0("courier_", sprintf("%02d", i)),
     init = list(
       battery_pct   = runif(1, min = 50, max = 100),
       route_zone    = sample(c("urban", "suburban", "rural"), 1,
@@ -67,7 +67,7 @@ Quick sanity check — the fleet's starting battery distribution:
 batteries <- map_dbl(couriers, ~ .x$current$battery_pct)
 summary(batteries)
 #>    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-#>   50.27   61.30   68.81   69.91   78.15   95.55
+#>   50.27   61.88   76.06   74.95   86.46   98.59
 ```
 
 ## Single-agent run
@@ -76,11 +76,29 @@ Before running the full cohort, let's step through one courier to see the shape
 of the output. The `Engine` is constructed once from the bundle and then reused
 for every courier.
 
+`Entity` objects use R6 reference semantics: `eng$run()` mutates the entity
+in-place, advancing its internal clock to the end of the shift. To keep the
+`couriers` list pristine for the cohort run below, we create a fresh copy of
+courier_01 just for this demo.
+
 
 ``` r
 eng <- Engine$new(bundle = delivery_bundle())
 
-out_single <- eng$run(couriers[[1]], max_events = 500, return_observations = TRUE)
+courier_01_demo <- Entity$new(
+  id          = "courier_01",
+  init        = list(battery_pct = couriers[["courier_01"]]$init$battery_pct,
+                     route_zone  = couriers[["courier_01"]]$init$route_zone,
+                     payload_kg  = 0,
+                     dispatch_mode = "idle"),
+  schema      = shared_schema,
+  entity_type = "courier",
+  time0       = 0
+)
+#> Error: Value for 'route_zone' must be a scalar.
+
+out_single <- eng$run(courier_01_demo, max_events = 500, return_observations = TRUE)
+#> Error: object 'courier_01_demo' not found
 ```
 
 The result contains:
@@ -91,31 +109,12 @@ The result contains:
 
 ``` r
 nrow(out_single$events)
-#> [1] 14
+#> Error: object 'out_single' not found
 knitr::kable(tail(out_single$observations, 5) |> tibble::rownames_to_column("obs"),
              digits = 3)
-```
-
-
-
-|obs |  time|event_type         |process_id |route_zone | battery_pct| payload_kg|dispatch_mode |
-|:---|-----:|:------------------|:----------|:----------|-----------:|----------:|:-------------|
-|9   | 6.274|delivery_completed |delivery   |urban      |      54.904|      2.758|in_transit    |
-|10  | 6.711|dispatch_check     |dispatch   |urban      |      54.717|      3.250|assigned      |
-|11  | 6.842|delivery_completed |delivery   |urban      |      52.486|      2.509|in_transit    |
-|12  | 7.600|delivery_completed |delivery   |urban      |      47.547|      1.412|in_transit    |
-|13  | 8.000|end_shift          |end_shift  |urban      |      47.547|      1.412|idle          |
-
-
-
-``` r
+#> Error: object 'out_single' not found
 out_single$entity$state(c("battery_pct", "dispatch_mode"))
-#> <flux_state>
-#> $battery_pct
-#> [1] 47.54659
-#> 
-#> $dispatch_mode
-#> [1] "idle"
+#> Error: object 'out_single' not found
 ```
 
 The `observations` table rows are numbered within the observation log (here obs
@@ -136,7 +135,7 @@ cohort_result <- run_cohort(
   eng,
   entities      = couriers,
   n_param_draws = 1,
-  n_sims        = 50,
+  n_sims        = 30,
   max_events    = 500,
   seed          = 42
 )
@@ -144,7 +143,7 @@ cohort_result <- run_cohort(
 
 Here:
 - `n_param_draws = 1` uses one parameter set (no parameter uncertainty yet),
-- `n_sims = 50` runs 50 stochastic simulations per courier,
+- `n_sims = 30` runs 30 stochastic simulations per courier,
 - `max_events = 500` caps events per run for safety,
 - `seed = 42` makes the run reproducible.
 
@@ -161,14 +160,14 @@ knitr::kable(head(cohort_result$index))
 
 
 
-|entity_id | param_draw_id| sim_id|run_id |
-|:---------|-------------:|------:|:------|
-|driver_01 |             1|      1|run_1  |
-|driver_01 |             1|      2|run_2  |
-|driver_01 |             1|      3|run_3  |
-|driver_01 |             1|      4|run_4  |
-|driver_01 |             1|      5|run_5  |
-|driver_01 |             1|      6|run_6  |
+|entity_id  | param_draw_id| sim_id|run_id |
+|:----------|-------------:|------:|:------|
+|courier_01 |             1|      1|run_1  |
+|courier_01 |             1|      2|run_2  |
+|courier_01 |             1|      3|run_3  |
+|courier_01 |             1|      4|run_4  |
+|courier_01 |             1|      5|run_5  |
+|courier_01 |             1|      6|run_6  |
 
 
 
@@ -178,7 +177,7 @@ knitr::kable(head(cohort_result$index))
 delivery_counts <- map_int(cohort_result$runs, ~ sum(.x$events$event_type == "delivery_completed"))
 summary(delivery_counts)
 #>    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-#>   0.000   3.000   5.000   4.727   6.000  12.000
+#>   0.000   3.000   5.000   4.852   6.000  12.000
 ```
 
 ## Forecasting
@@ -200,7 +199,7 @@ fc <- forecast(
   engine   = eng,
   entities = couriers,
   times    = times,
-  S        = 80,       # forecast simulation draws per courier
+  S        = 100,      # 100 simulation draws per courier
   vars     = "battery_pct",
   seed     = 42
 )
@@ -231,93 +230,73 @@ knitr::kable(head(ep$result), digits = 3)
 
 | time| n_eligible| n_events| event_prob|  risk|
 |----:|----------:|--------:|----------:|-----:|
-|    0|       1600|        0|      0.000| 0.000|
-|    1|       1600|      405|      0.253| 0.253|
-|    2|       1600|      964|      0.603| 0.603|
-|    3|       1600|     1301|      0.813| 0.813|
-|    4|       1600|     1471|      0.919| 0.919|
-|    5|       1600|     1529|      0.956| 0.956|
+|    0|       5000|        0|      0.000| 0.000|
+|    1|       5000|     1579|      0.316| 0.316|
+|    2|       5000|     3091|      0.618| 0.618|
+|    3|       5000|     4007|      0.801| 0.801|
+|    4|       5000|     4536|      0.907| 0.907|
+|    5|       5000|     4782|      0.956| 0.956|
 
 
 
-`ep` is a `flux_event_prob` object. The per-time summary table is in
-`ep$result`. By default this is an aggregate cohort risk curve. It starts at
-exactly 0 at
-hour 0 (no courier can have completed a delivery before the shift starts) and
-approaches 1 by hour 8 (most couriers complete at least one delivery).
+`ep` is a `flux_event_prob` object. `ep$result` is a cohort-level risk curve
+aggregated across all 50 couriers × 100 simulation runs (5,000 runs total). It
+starts at exactly 0 at hour 0 and approaches 1 by hour 8 — most couriers
+complete at least one delivery.
 
 
 
-### `state_summary()` — distribution of a state variable
+### Battery state over time
 
-"What does the battery distribution look like across the fleet at each hour?"
+**Across 50 couriers (simulation run 1):** fleet heterogeneity — couriers diverge
+because they start with different batteries and receive different assignments.
+We pull gridded values from `draws()` at integer hours.
 
 
 ``` r
-ss <- state_summary(fc, vars = "battery_pct", times = times)
+dr_all <- draws(fc, var = "battery_pct", times = times, start_time = 0) |>
+  left_join(fc$run_index |> select(run_id, entity_tag, sim_id), by = "run_id") |>
+  filter(time < 8)   # hour 8: all couriers have ended shift (no observations)
+```
 
-# draws() gives us the individual values — use them for a richer plot
-dr_all <- draws(fc, var = "battery_pct", times = times, start_time = 0)
 
+``` r
 dr_all |>
-  filter(time < 8) |>           # hour 8: all couriers have ended shift (no data)
+  filter(sim_id == 1) |>
   mutate(hour = factor(time)) |>
   ggplot(aes(x = value, y = hour, fill = hour)) +
-  ggplot2::geom_violin(show.legend = FALSE, colour = NA, alpha = 0.8) +
-  ggplot2::geom_boxplot(width = 0.15, outlier.shape = NA, show.legend = FALSE,
-                        colour = "grey30") +
+  geom_violin(show.legend = FALSE, colour = NA, alpha = 0.8) +
+  geom_boxplot(width = 0.15, outlier.shape = NA, show.legend = FALSE, colour = "grey30") +
   labs(x = "Battery (%)", y = "Hour",
-       title = "Fleet battery distribution over an 8-hour shift") +
+       title = "Battery distribution across 50 couriers (single simulation run)") +
   theme_minimal()
 ```
 
-<div class="figure">
-<img src="figure/battery-ridges-1.png" alt="Violin plot of fleet battery_pct at each hour"  />
-<p class="caption">plot of chunk battery-ridges</p>
-</div>
+![plot of chunk battery-across-couriers](figure/battery-across-couriers-1.png)
 
-`state_summary()` with the default `by = "run"` returns per-time quantiles
-across all draws and couriers. The fleet-wide median drops steadily; the
-widening spread reflects couriers diverging as some get more assignments than
-others. Hour 8 has no data because all couriers hit `end_shift` before that
-tick — the terminal event removes them from the at-risk pool.
-
-### `draws()` — inspect raw trajectories
-
-For a single agent, you can pull the underlying simulation draws to see the
-stochastic spread:
+**Across 100 simulation runs (courier\_01):** stochastic spread in a single
+courier's battery. Different draws diverge because battery drain is sampled from
+an exponential at each event. `draws()` snapshots each run at integer hours via
+LOCF and returns one row per (run, hour), giving us 100 draws × 8 hours = 800
+rows — enough to show a proper distribution at each hour.
 
 
 ``` r
-dr <- draws(fc, var = "battery_pct", times = times, start_time = 0) |>
-  left_join(fc$run_index |> select(run_id, entity_tag), by = "run_id")
+dr_c01 <- draws(fc, var = "battery_pct", times = 0:7, start_time = 0) |>
+  left_join(fc$run_index |> select(run_id, entity_tag), by = "run_id") |>
+  filter(entity_tag == "courier_01")
 
-# Show one draw's full trajectory for driver_01 across all hours
-dr |>
-  filter(entity_tag == "driver_01") |>
-  arrange(run_id, time) |>
-  filter(run_id == first(run_id)) |>
-  knitr::kable(digits = 2)
+dr_c01 |>
+  mutate(hour = factor(time)) |>
+  ggplot(aes(x = value, y = hour, fill = hour)) +
+  geom_violin(show.legend = FALSE, colour = NA, alpha = 0.8) +
+  geom_boxplot(width = 0.15, outlier.shape = NA, show.legend = FALSE, colour = "grey30") +
+  labs(x = "Battery (%)", y = "Hour",
+       title = "Battery distribution for courier_01 across 100 forecast draws") +
+  theme_minimal()
 ```
 
-
-
-|run_id | time| value|entity_tag |
-|:------|----:|-----:|:----------|
-|run_1  |    0| 84.93|driver_01  |
-|run_1  |    1| 84.93|driver_01  |
-|run_1  |    2| 70.81|driver_01  |
-|run_1  |    3| 61.24|driver_01  |
-|run_1  |    4| 56.29|driver_01  |
-|run_1  |    5| 56.29|driver_01  |
-|run_1  |    6| 56.29|driver_01  |
-|run_1  |    7| 52.49|driver_01  |
-
-
-
-Each row is one draw × one time point. You get the full distribution rather than
-just a summary — useful for checking whether the forecast is well-behaved or if
-there are pathological outliers.
+![plot of chunk battery-across-sims](figure/battery-across-sims-1.png)
 
 ## Varying model parameters
 
@@ -336,7 +315,7 @@ fc_slow <- forecast(
   engine   = eng_slow,
   entities = couriers,
   times    = times,
-  S        = 80,
+  S        = 100,
   vars     = "battery_pct",
   seed     = 42
 )
@@ -350,10 +329,10 @@ Compare mean fleet-wide delivery probability at hour 4:
 ``` r
 cat("Default dispatch rate — P(delivery by hour 4):",
   round(ep$result$event_prob[ep$result$time == 4], 3), "\n")
-#> Default dispatch rate — P(delivery by hour 4): 0.919
+#> Default dispatch rate — P(delivery by hour 4): 0.907
 cat("Slow dispatch rate   — P(delivery by hour 4):",
   round(ep_slow$result$event_prob[ep_slow$result$time == 4], 3), "\n")
-#> Slow dispatch rate   — P(delivery by hour 4): 0.753
+#> Slow dispatch rate   — P(delivery by hour 4): 0.754
 ```
 
 The slower dispatch rate produces a flatter event probability curve — agents
