@@ -132,10 +132,11 @@ out_single$entity$state(c("battery_pct", "dispatch_mode"))
 ```
 
 The `observations` table rows are numbered within the observation log (here obs
-9–13 are the last five), not matched to the events log which has 14 rows total.
-The final event should be `end_shift` — the model's terminal event. The battery
-will be lower than it started, and the courier may have completed several
-deliveries during the shift.
+8–12 are the
+last five), not matched to the events log which has 13
+rows total. The final event should be `end_shift` — the model's terminal event.
+The battery will be lower than it started, and the courier may have completed
+several deliveries during the shift.
 
 ## Cohort simulation
 
