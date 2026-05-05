@@ -474,7 +474,7 @@ rather than `Engine$new()`. It validates that the schema, bundle, policy, and
 dp_bundle <- list(
   time_spec = time_spec(unit = "hours"),
 
-  propose_events = function(entity, sim_ctx = NULL, param_ctx = NULL) {
+  propose_events = function(entity) {
     # In surge mode: shorter intervals (faster delivery) but transition() will
     # drain more battery.
     rate <- if (identical(entity$current$priority_mode, "surge")) 1.8 else 1.0
@@ -484,7 +484,7 @@ dp_bundle <- list(
     ))
   },
 
-  transition = function(entity, event, sim_ctx = NULL, param_ctx = NULL) {
+  transition = function(entity, event) {
     if (identical(event$event_type, "dispatch")) {
       # Surge mode drains ~50% more battery per dispatch
       drain <- if (identical(entity$current$priority_mode, "surge")) {
@@ -503,11 +503,11 @@ dp_bundle <- list(
     list()
   },
 
-  stop = function(entity, event, sim_ctx = NULL, param_ctx = NULL) {
+  stop = function(entity, event) {
     as.numeric(entity$current$battery_pct) < 10
   },
 
-  observe = function(entity, event, sim_ctx = NULL, param_ctx = NULL) {
+  observe = function(entity, event) {
     s <- entity$snapshot(c("battery_pct", "deliveries_completed", "priority_mode"))
     data.frame(
       time                 = entity$last_time,
