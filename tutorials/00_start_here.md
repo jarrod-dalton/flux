@@ -208,7 +208,6 @@ Scale from cohort-level (independent entities) to population-level (interacting 
 | **fluxForecast** | Streaming summaries, trajectory quantiles, and event probability surfaces from simulation outputs. |
 | **fluxOrchestrate** | Compose multiple model bundles on a single entity timeline with eligibility gating and priority control. |
 | **fluxModelTemplate** | Skeleton for authoring new model packages that follow ecosystem conventions. |
-| **fluxASCVD** | Reference implementation: a cardiovascular disease model that exercises the full ecosystem. |
 | **fluxSim** | *(Future)* Multi-entity ABM, policy campaigns, counterfactual comparison, RL data collection. |
 
 ---
@@ -220,12 +219,9 @@ The tutorials that follow this introduction move from concepts to working code. 
 | # | Tutorial | What you learn |
 |---|---|---|
 | 01 | [Core engine scaffold](01_core_engine_scaffold.md) | Entity, schema, ModelBundle, Engine. Build and run a simulation from scratch. Variable blocks, batch cohort runs, policy/intervention layering. |
-| 02 | [Prepare TTV](02_prepare_ttv.md) | Constructing train/test/validation datasets from irregular tables. Time semantics, as-of reconstruction, explicit denominators. |
-| 03 | [Observed grids and masks](03_validation_observed_grids_and_masks.md) | Mask-driven validation: how denominators are defined, how LOCF gridding works, how observed data maps to forecast grids. |
-| 04 | [Event risk: apples to apples](04_validation_event_risk_apples_to_apples.md) | Matching simulation and observed risk estimands. Fixed-cohort vs. risk-set denominators. |
-| 05 | [Orchestration framework](05_orchestration_framework.md) | Multi-bundle orchestration: eligibility gating, priority encoding, cross-model hooks. |
-| 06 | [ASCVD ecosystem welcome](06_ascvd_ecosystem_welcome.md) | A concrete domain walkthrough using the cardiovascular disease reference model. |
-| 07 | [ASCVD prepare TTV](07_ascvd_prepare_ttv.md) | Applying fluxPrepare to ASCVD-specific EHR data. |
-| 08 | [End-to-end v1.x path](08_end_to_end_v1_path.md) | Running the full test and validation stack from clone to green. |
+| 02 | [Cohort simulation and forecasting](02_cohort_forecast.md) | Scale to many entities with `run_cohort()`. Use fluxForecast to compute event-probability curves and trajectory quantiles. |
+| 03 | [Decisions and policy](03_decisions_policy.md) | Add DecisionPoints to a model. Author and compare policies. Capture trajectory records for downstream analysis. |
+| 04 | [Preparing operational data](04_prepare_operational_data.md) | Use fluxPrepare to turn irregular longitudinal records into model-ready TTV datasets with explicit time semantics and as-of state reconstruction. |
+| 05 | [Validation](05_validation.md) | Build observation grids, define at-risk denominators, and compare predicted vs. observed event risk using fluxValidation. |
 
-**Recommended order for newcomers**: Read this page first, then work through 01 → 02 → 03 → 04 → 05. Tutorials 06–07 are a domain-specific worked example; 08 is a validation checklist.
+**Recommended order for newcomers**: Read this page first, then work through 01 → 02 → 03 → 04 → 05 in sequence.
