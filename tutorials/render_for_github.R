@@ -73,15 +73,13 @@ knitr::opts_chunk$set(fig.path = "figure/")
 
 knit_inputs <- c(
   "tutorials/src/01_core_engine_scaffold.Rmd",
-  "tutorials/src/03_validation_observed_grids_and_masks.Rmd",
-  "tutorials/src/04_validation_event_risk_apples_to_apples.Rmd",
-  "tutorials/05_orchestration_framework.md"
+  "tutorials/src/02_cohort_forecast.Rmd",
+  "tutorials/src/03_decisions_policy.Rmd",
+  "tutorials/src/04_prepare_operational_data.Rmd",
+  "tutorials/src/05_validation.Rmd"
 )
 
-spin_inputs <- c(
-  "tutorials/src/06_ascvd_ecosystem_welcome.R",
-  "tutorials/src/07_ascvd_prepare_ttv.R"
-)
+spin_inputs <- character(0)
 
 for (f in knit_inputs) render_knit(f)
 for (f in spin_inputs) render_spin(f)

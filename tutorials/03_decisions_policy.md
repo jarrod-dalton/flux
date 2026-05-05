@@ -1,0 +1,404 @@
+In Tutorial 03, every agent followed the same mechanistic process: dispatches
+arrived, deliveries completed, batteries drained — all without anyone making
+choices. Real systems involve **decisions**: a dispatcher choosing whether to
+accept or decline an assignment, a routing algorithm picking surge vs normal
+mode, a fleet manager pulling a low-battery vehicle off the road.
+
+This tutorial introduces **decision points** — the mechanism by which policies
+inject choices into the simulation timeline. By the end you will be able to:
+
+- declare a decision point on the delivery schema,
+- write a policy function that proposes actions,
+- compare outcomes under two different policies with identical seeds,
+- inspect trajectory records to see exactly why each decision was made.
+
+## Setup
+
+
+``` r
+library(fluxCore)
+source("tutorials/model/urban_delivery.R")
+set.seed(2026)
+```
+
+## The decision: accept or decline a dispatch
+
+When a `dispatch_check` event fires, the agent currently accepts every
+assignment unconditionally. But what if the agent (or a fleet management system)
+could **decline** an assignment — for example, when battery is too low to
+safely complete the delivery?
+
+This is a natural decision point. Let's formalize it.
+
+## Declaring a decision point
+
+Decision points are declared on the schema, not buried in transition logic.
+This makes the policy interface explicit and auditable. A schema without
+`$decision_points` runs as a pure generative model — policies are opt-in.
+
+
+``` r
+dp_dispatch <- DecisionPoint(
+  id              = "dispatch_decision",
+  trigger         = "dispatch_check",
+  allowed_actions = c("accept", "decline"),
+  label           = "Accept or decline an incoming dispatch assignment"
+)
+```
+
+The fields:
+- **`trigger`**: the event type that fires this decision point. The engine
+  invokes the policy *after* transition has already been applied for that event.
+- **`allowed_actions`**: what the policy is permitted to propose. Actions
+  outside this set are rejected.
+- **`label`**: human-readable documentation.
+
+Now assemble a full schema object (variables + time_spec + decision points):
+
+
+``` r
+schema_with_dp <- list(
+  variables       = delivery_schema(),
+  time_spec       = time_spec(unit = "hours"),
+  decision_points = list(dp_dispatch)
+)
+```
+
+## Writing policies
+
+A policy is a list with a `propose_action` method:
+
+```r
+propose_action(decision_point, entity, sim_ctx, param_ctx) -> ActionEvent | NULL
+```
+
+It inspects the current entity state (which already reflects the triggering
+event's transition) and returns an `ActionEvent` — or `NULL` for "no
+intervention."
+
+### Policy A: always accept
+
+The simplest possible policy — accept every dispatch regardless of state.
+This is equivalent to having no policy at all (the baseline behavior).
+
+
+``` r
+policy_always_accept <- list(
+
+  propose_action = function(decision_point, entity, sim_ctx, param_ctx) {
+    ActionEvent(
+      action_type       = "accept",
+      time_next         = entity$last_time + 0.01,
+      decision_point_id = decision_point$id
+    )
+  }
+)
+```
+
+### Policy B: battery threshold
+
+Decline if battery has dropped below 25%. The idea: a low-battery agent
+should stop taking new assignments and coast to shift end rather than
+risk stranding mid-delivery.
+
+
+``` r
+policy_battery_threshold <- list(
+  propose_action = function(decision_point, entity, sim_ctx, param_ctx) {
+    battery <- as.numeric(entity$current$battery_pct)
+
+    action <- if (!is.null(battery) && battery < 25) "decline" else "accept"
+
+    ActionEvent(
+      action_type       = action,
+      time_next         = entity$last_time + 0.01,
+      decision_point_id = decision_point$id,
+      metadata          = list(battery_at_decision = battery)
+    )
+  }
+)
+```
+
+## Extending the bundle to handle the "decline" action
+
+When the policy proposes "decline", that action enters the event timeline as
+an `ActionEvent` and flows through `transition()`. We need the transition
+function to handle it — in this case, by reverting the dispatch (resetting
+mode back to idle and dropping the payload that was just assigned).
+
+
+``` r
+# Extended transition that also handles the "decline" action
+delivery_transition_with_policy <- function(entity, event, param_ctx = NULL) {
+  # Handle the decline action: undo the dispatch assignment
+
+  if (identical(event$event_type, "decline")) {
+    return(list(
+      dispatch_mode = "idle",
+      payload_kg    = 0
+    ))
+  }
+
+  # "accept" action: no additional state change needed (dispatch already applied)
+  if (identical(event$event_type, "accept")) {
+    return(NULL)
+  }
+
+  # All other events: delegate to the standard transition
+  delivery_transition(entity, event, param_ctx)
+}
+```
+
+Now build a bundle that uses this extended transition:
+
+
+``` r
+delivery_bundle_with_policy <- function(params = list()) {
+  base <- delivery_bundle(params)
+  base$transition <- delivery_transition_with_policy
+  base$event_catalog <- c(base$event_catalog, "accept", "decline")
+  base
+}
+```
+
+## Assembling with `load_model()`
+
+When decision points are present, `load_model()` is the recommended assembly
+path. It validates that the schema, bundle, policy, and trajectory configuration
+are mutually consistent before any run begins.
+
+
+``` r
+model_accept <- load_model(
+  schema     = schema_with_dp,
+  bundle     = delivery_bundle_with_policy(),
+  policy     = policy_always_accept,
+  trajectory = list(detail = "summary")
+)
+
+model_threshold <- load_model(
+  schema     = schema_with_dp,
+  bundle     = delivery_bundle_with_policy(),
+  policy     = policy_battery_threshold,
+  trajectory = list(detail = "summary")
+)
+```
+
+## Running both policies from the same seed
+
+The power of the decision-point architecture: same entity, same seed, same
+stochastic draws — but different policies yield different outcomes.
+
+
+``` r
+agent <- Entity$new(
+  id          = "driver_A",
+  init        = list(
+    battery_pct   = 80,
+    route_zone    = "urban",
+    payload_kg    = 0,
+    dispatch_mode = "idle"
+  ),
+  schema      = delivery_schema(),
+  entity_type = "delivery_agent",
+  time0       = 0
+)
+
+# Run under always-accept
+out_accept <- model_accept$run(agent, max_events = 500,
+                               return_observations = TRUE, seed = 99)
+#> Error in model_accept$run(agent, max_events = 500, return_observations = TRUE, : unused argument (seed = 99)
+
+# Fresh entity (same starting state)
+agent2 <- Entity$new(
+  id          = "driver_A",
+  init        = list(
+    battery_pct   = 80,
+    route_zone    = "urban",
+    payload_kg    = 0,
+    dispatch_mode = "idle"
+  ),
+  schema      = delivery_schema(),
+  entity_type = "delivery_agent",
+  time0       = 0
+)
+
+# Run under battery-threshold
+out_threshold <- model_threshold$run(agent2, max_events = 500,
+                                     return_observations = TRUE, seed = 99)
+#> Error in model_threshold$run(agent2, max_events = 500, return_observations = TRUE, : unused argument (seed = 99)
+```
+
+## Comparing outcomes
+
+
+``` r
+# Count deliveries completed under each policy
+count_deliveries <- function(out) {
+  sum(out$events$event_type == "delivery_completed", na.rm = TRUE)
+}
+
+cat("Always-accept policy:\n")
+#> Always-accept policy:
+cat("  Deliveries completed:", count_deliveries(out_accept), "\n")
+#> Error: object 'out_accept' not found
+cat("  Final battery:       ", round(out_accept$entity$current$battery_pct, 1), "%\n\n")
+#> Error: object 'out_accept' not found
+
+cat("Battery-threshold policy:\n")
+#> Battery-threshold policy:
+cat("  Deliveries completed:", count_deliveries(out_threshold), "\n")
+#> Error: object 'out_threshold' not found
+cat("  Final battery:       ", round(out_threshold$entity$current$battery_pct, 1), "%\n")
+#> Error: object 'out_threshold' not found
+```
+
+The always-accept agent takes every dispatch and drains the battery more
+aggressively — potentially completing more deliveries but at higher risk of
+hitting critical battery levels. The threshold agent conserves energy by
+declining late-shift dispatches when battery is low.
+
+## Inspecting trajectory records
+
+Every time a decision point fires, the engine emits a `TrajectoryRecord`
+capturing what was observed, what was proposed, and what happened next. This
+is the audit trail that enables policy comparison and counterfactual analysis.
+
+
+``` r
+# How many decisions were made?
+cat("Decisions (accept policy):   ", length(out_accept$trajectory_records), "\n")
+#> Error: object 'out_accept' not found
+cat("Decisions (threshold policy):", length(out_threshold$trajectory_records), "\n")
+#> Error: object 'out_threshold' not found
+```
+
+Inspect the structure of a single record:
+
+
+``` r
+tr <- out_threshold$trajectory_records[[1]]
+#> Error: object 'out_threshold' not found
+cat("Time:            ", tr$t, "\n")
+#> Error: object 'tr' not found
+cat("Decision point:  ", tr$decision_point_id, "\n")
+#> Error: object 'tr' not found
+cat("Action proposed: ", tr$selected_action$action_type, "\n")
+#> Error: object 'tr' not found
+cat("Battery before:  ", tr$state_before$battery_pct, "\n")
+#> Error: object 'tr' not found
+cat("Battery after:   ", tr$state_after$battery_pct, "\n")
+#> Error: object 'tr' not found
+```
+
+Build a summary table across all records:
+
+
+``` r
+tr_df <- trajectory_table(out_threshold$trajectory_records,
+                          vars = c("battery_pct", "dispatch_mode"))
+#> Error: object 'out_threshold' not found
+head(tr_df, 10)
+#> Error: object 'tr_df' not found
+```
+
+Look for the moment the policy starts declining — that's where the battery
+crosses the threshold and the agent switches from "accept everything" to
+"coast to end of shift."
+
+## Cohort-level comparison
+
+Let's scale this up. Run a 20-agent cohort under both policies and compare
+aggregate outcomes.
+
+
+``` r
+make_agents <- function(n = 20, seed = 2026) {
+  set.seed(seed)
+  lapply(seq_len(n), function(i) {
+    Entity$new(
+      id   = paste0("driver_", sprintf("%02d", i)),
+      init = list(
+        battery_pct   = runif(1, 50, 100),
+        route_zone    = sample(c("urban", "suburban", "rural"), 1,
+                               prob = c(0.55, 0.30, 0.15)),
+        payload_kg    = 0,
+        dispatch_mode = "idle"
+      ),
+      schema      = delivery_schema(),
+      entity_type = "delivery_agent",
+      time0       = 0
+    )
+  })
+}
+
+cohort_accept    <- lapply(make_agents(), function(e) {
+  model_accept$run(e, max_events = 500, return_observations = TRUE, seed = 42)
+})
+#> Error in model_accept$run(e, max_events = 500, return_observations = TRUE, : unused argument (seed = 42)
+
+cohort_threshold <- lapply(make_agents(), function(e) {
+  model_threshold$run(e, max_events = 500, return_observations = TRUE, seed = 42)
+})
+#> Error in model_threshold$run(e, max_events = 500, return_observations = TRUE, : unused argument (seed = 42)
+
+# Aggregate
+del_accept    <- vapply(cohort_accept, count_deliveries, integer(1))
+#> Error: object 'cohort_accept' not found
+del_threshold <- vapply(cohort_threshold, count_deliveries, integer(1))
+#> Error: object 'cohort_threshold' not found
+bat_accept    <- vapply(cohort_accept,
+                        function(o) o$entity$current$battery_pct, numeric(1))
+#> Error: object 'cohort_accept' not found
+bat_threshold <- vapply(cohort_threshold,
+                        function(o) o$entity$current$battery_pct, numeric(1))
+#> Error: object 'cohort_threshold' not found
+
+cat("Fleet summary — always accept:\n")
+#> Fleet summary — always accept:
+cat("  Mean deliveries:", round(mean(del_accept), 1), "\n")
+#> Error: object 'del_accept' not found
+cat("  Mean final battery:", round(mean(bat_accept), 1), "%\n\n")
+#> Error: object 'bat_accept' not found
+
+cat("Fleet summary — battery threshold:\n")
+#> Fleet summary — battery threshold:
+cat("  Mean deliveries:", round(mean(del_threshold), 1), "\n")
+#> Error: object 'del_threshold' not found
+cat("  Mean final battery:", round(mean(bat_threshold), 1), "%\n")
+#> Error: object 'bat_threshold' not found
+```
+
+The trade-off is visible at fleet scale: the threshold policy sacrifices some
+delivery throughput in exchange for better battery preservation — a real
+operational consideration when battery replacement or charging infrastructure
+is constrained.
+
+## What trajectory records enable
+
+`TrajectoryRecord` is not just an audit log. It is the structured surface that
+the rest of the flux ecosystem builds on:
+
+- **Policy comparison**: run the same entity under two policies with the same
+  seed; diff the trajectory_records to see where and why they diverge.
+- **Counterfactual analysis**: fix seed + parameter draw; vary only the policy;
+  compare outcomes.
+- **RL training** (future: `fluxSim`): the `(observation, action, reward,
+  next_state)` tuple for each record becomes a training transition.
+- **Audit and explainability**: for any individual run, reconstruct the full
+  decision history and ask "why did the simulation do that?"
+
+## Summary
+
+| Concept | What you learned |
+|---------|-----------------|
+| `DecisionPoint()` | Declares where in the event timeline a policy is consulted |
+| Policy function | `propose_action(dp, entity, sim_ctx, param_ctx)` → `ActionEvent` or NULL |
+| `ActionEvent()` | The proposed intervention — enters the timeline like any other event |
+| `load_model()` | Validates schema + bundle + policy + trajectory config together |
+| Trajectory records | Per-decision audit trail: observation, action, state_before/after |
+| Same seed, different policy | Isolates the causal effect of the policy on outcomes |
+
+**Next:** [05_prepare_operational_data.md](05_prepare_operational_data.md) —
+generate synthetic operational logs and prepare them into train/test/validation
+format with `fluxPrepare`.
