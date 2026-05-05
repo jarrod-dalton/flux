@@ -101,7 +101,7 @@ flux is designed around a deliberate spectrum of simulation complexity:
                   │                        │  disease + hospital       │
                   │                        │  episodes).               │
                   ├───────────────────────┼───────────────────────────┤
-  Multiple        │  fluxSimulate         │  fluxSimulate +           │
+  Multiple        │  fluxSim         │  fluxSim +           │
   entities        │  Many entities         │  fluxOrchestrate          │
                   │  sharing an            │  Multi-model agents in a  │
                   │  environment.          │  shared world.            │
@@ -130,7 +130,7 @@ Sometimes a single entity needs multiple models on the same timeline. A patient 
 
 This is still single-entity — the entity just has a richer dynamics specification.
 
-### Multi-entity ABM (fluxSimulate — future)
+### Multi-entity ABM (fluxSim — future)
 
 When entities interact — patients in a shared healthcare system competing for resources, delivery vehicles coordinating routes, agents in a market — you need **agent-based modeling (ABM)**.
 
@@ -178,7 +178,7 @@ Real-world data is irregular and messy. flux provides disciplined tools for cons
 
 Run the same cohort of entities through alternative policies with matched seeds. The only difference between runs is the policy — stochastic paths are identical. Compare trajectory records to quantify the effect of policy changes.
 
-**Tools**: `fluxCore` (decision points, policies, trajectory records), `fluxSimulate` (campaign runner, scenario comparison, counterfactual rollouts — future).
+**Tools**: `fluxCore` (decision points, policies, trajectory records), `fluxSim` (campaign runner, scenario comparison, counterfactual rollouts — future).
 
 ### 5. Decision optimization and reinforcement learning
 
@@ -186,7 +186,7 @@ Run the same cohort of entities through alternative policies with matched seeds.
 
 Use the simulation as a training environment. Collect (state, action, reward, next-state) transitions across many episodes. Feed these to offline RL algorithms or policy gradient methods. The simulation provides the substrate; the optimization is external.
 
-**Tools**: `fluxCore` (decision points, trajectory records), `fluxSimulate` (episodes, rollouts, reward utilities, policy wrappers — future).
+**Tools**: `fluxCore` (decision points, trajectory records), `fluxSim` (episodes, rollouts, reward utilities, policy wrappers — future).
 
 ### 6. Agent-based modeling
 
@@ -194,7 +194,7 @@ Use the simulation as a training environment. Collect (state, action, reward, ne
 
 Scale from cohort-level (independent entities) to population-level (interacting agents). Model resource competition, transmission dynamics, market behavior, or any setting where one entity's actions affect another's future.
 
-**Tools**: `fluxCore` (entity, engine), `fluxSimulate` (environment, ABM scheduler, interaction functions — future).
+**Tools**: `fluxCore` (entity, engine), `fluxSim` (environment, ABM scheduler, interaction functions — future).
 
 ---
 
@@ -209,7 +209,7 @@ Scale from cohort-level (independent entities) to population-level (interacting 
 | **fluxOrchestrate** | Compose multiple model bundles on a single entity timeline with eligibility gating and priority control. |
 | **fluxModelTemplate** | Skeleton for authoring new model packages that follow ecosystem conventions. |
 | **fluxASCVD** | Reference implementation: a cardiovascular disease model that exercises the full ecosystem. |
-| **fluxSimulate** | *(Future)* Multi-entity ABM, policy campaigns, counterfactual comparison, RL data collection. |
+| **fluxSim** | *(Future)* Multi-entity ABM, policy campaigns, counterfactual comparison, RL data collection. |
 
 ---
 

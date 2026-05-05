@@ -103,7 +103,7 @@ schema$age
 #> $validate
 #> function (x) 
 #> length(x) == 1L && (is.na(x) || (is.finite(x) && x >= 0))
-#> <environment: 0x13e2678d0>
+#> <environment: 0x110dbd858>
 schema$ldl
 #> $type
 #> [1] "continuous"
@@ -117,7 +117,7 @@ schema$ldl
 #> $validate
 #> function (x) 
 #> length(x) == 1L && (is.na(x) || is.finite(x))
-#> <environment: 0x13e2678d0>
+#> <environment: 0x110dbd858>
 #> 
 #> $blocks
 #> [1] "lipids"
@@ -286,13 +286,14 @@ prov <- PackageProvider$new(
     ascvd_toy = function(...) bundle
   )
 )
+#> Error: object 'PackageProvider' not found
 
 eng <- Engine$new(
   provider   = prov,
   model_spec = list(name = "ascvd_toy"),
   ctx        = ctx
 )
-#> Error: ModelBundle must define `$time_spec` as a fluxCore `time_spec` object.
+#> Error: Engine$new() requires a `bundle` argument. Supply a ModelBundle list directly, or use load_model() for the full v2 assembly path.
 ```
 
 ``` r

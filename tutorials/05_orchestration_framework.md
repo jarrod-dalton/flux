@@ -1,15 +1,3 @@
----
-title: "fluxOrchestrate: Orchestration framework"
-maturity: "draft"
-output: rmarkdown::html_vignette
-vignette: >
-  %\VignetteIndexEntry{fluxOrchestrate: Orchestration framework}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
----
-
-
-
 ## What orchestration means in the flux ecosystem
 
 In **fluxCore**, a simulation run advances by repeatedly:

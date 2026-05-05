@@ -1,18 +1,3 @@
----
-title: "Event risk: apples-to-apples"
-maturity: "validated"
-output:
-  rmarkdown::html_document:
-    toc: true
-    toc_depth: 3
-    theme: null
-    highlight: tango
-vignette: >
-  %\VignetteIndexEntry{Event risk: apples-to-apples}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
----
-
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.55;margin:0 auto;max-width:980px;padding:24px;color:#111;}
 pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;}

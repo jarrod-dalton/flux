@@ -19,6 +19,22 @@ ensure_dir <- function(path) {
   if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE)
 }
 
+strip_yaml_frontmatter <- function(lines) {
+
+  # Remove YAML frontmatter (---...---) from rendered .md so GitHub doesn't
+
+  # display it as a formatted table.
+  if (length(lines) >= 2L && lines[1L] == "---") {
+    close <- which(lines[-1L] == "---")[1L] + 1L
+    if (!is.na(close)) {
+      lines <- lines[(close + 1L):length(lines)]
+      # strip leading blank lines after frontmatter removal
+      while (length(lines) > 0L && lines[1L] == "") lines <- lines[-1L]
+    }
+  }
+  lines
+}
+
 render_knit <- function(input) {
   # Output always goes into tutorials/ (parent of src/), not src/ itself
   out_dir <- if (basename(dirname(input)) == "src") dirname(dirname(input)) else dirname(input)
@@ -27,6 +43,7 @@ render_knit <- function(input) {
   knitr::knit(input, output = output, quiet = TRUE)
   txt <- readLines(output, warn = FALSE)
   txt <- gsub("\\(tutorials/figure/", "(figure/", txt)
+  txt <- strip_yaml_frontmatter(txt)
   writeLines(txt, output)
 }
 
@@ -45,6 +62,7 @@ render_spin <- function(input) {
   knitr::knit(spun_rmd, output = output, quiet = TRUE)
   txt <- readLines(output, warn = FALSE)
   txt <- gsub("\\(tutorials/figure/", "(figure/", txt)
+  txt <- strip_yaml_frontmatter(txt)
   writeLines(txt, output)
   unlink(spun_rmd)
 }

@@ -1,15 +1,3 @@
----
-title: "Engine and ModelBundle scaffold"
-maturity: "validated"
-output: rmarkdown::html_vignette
-vignette: >
-  %\VignetteIndexEntry{Engine and ModelBundle scaffold}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
----
-
-
-
 This vignette demonstrates the core architecture:
 
 - `Entity` holds mutable state, sparse history, and an event log.
@@ -18,16 +6,16 @@ This vignette demonstrates the core architecture:
 
 If you haven't read [00_start_here.md](00_start_here.md) yet, do that first — it covers the conceptual framework (entities, processes, decisions, the single-entity → multi-entity spectrum) that this tutorial puts into code.
 
-This tutorial uses the simpler direct `bundle =` constructor and defers `ModelProvider` and package-based model loading to a later tutorial.
+This tutorial uses the simpler direct `bundle =` constructor and defers package-based model loading to a later tutorial.
 
-### Determinism, tie-breaking, and optional entity tags
+### Determinism and tie-breaking
 
 When multiple processes propose events at the same `time_next`, the engine selects one deterministically by ordering on:
 
 1. earliest `time_next`, then
 2. lexicographic `process_id`.
 
-This means `process_id` is not just a label, it is part of the model's deterministic resolution policy. If your model has a preferred priority when ties occur, encode that priority into the `process_id` (for example, a zero-padded numeric prefix).
+This means `process_id` is not just a label — it is part of the model's deterministic resolution policy. If your model has a preferred priority when ties occur, encode that priority into the `process_id` (for example, a zero-padded numeric prefix). We will introduce multiple competing processes later in this tutorial; for now, bundles with a single process just need a single consistent name.
 
 
 An `Entity` may also carry an optional single-column identifier `id` (default `NULL`). 
@@ -114,50 +102,60 @@ A minimal `ModelBundle` therefore needs five things:
 | Field | Purpose |
 |---|---|
 | `time_spec` | The clock (units, calendar). Built with `time_spec(unit = ...)`. |
-| `propose_events(entity, ctx, process_ids, current_proposals)` | Returns a named list of candidate events, each with `time_next` and `event_type`. The names are the `process_id`s used for tie-breaking. |
-| `transition(entity, event, ctx)` | Returns a named list of state changes for the chosen event (or `list()` for a no-op). |
-| `stop(entity, event, ctx)` | Returns `TRUE` when the run should terminate. |
-| `observe(entity, event, ctx)` | Returns a one-row data frame of the variables you want recorded after each event. Optional — only used when `return_observations = TRUE`. |
+| `propose_events(entity)` | Returns a named list of candidate events, each with `time_next` and `event_type`. The names are the `process_id`s used for tie-breaking. |
+| `transition(entity, event)` | Returns a named list of state changes for the chosen event (or `list()` for a no-op). |
+| `stop(entity, event)` | Returns `TRUE` when the run should terminate. |
+| `observe(entity, event)` | Returns a one-row data frame of the variables you want recorded after each event. Optional — only used when `return_observations = TRUE`. |
 
 Bundles can also expose optional hooks (`init_entity`, `refresh_rules`, `event_catalog`, `params`, `sample_params`); we ignore them here.
 
-> *Aside on `ModelProvider`.* In production you typically don't author a bundle inline — you build it from the `fluxModelTemplate` skeleton, ship it as its own R package, and register it through a `ModelProvider` (e.g. `PackageProvider$new(registry = list(my_model = build_my_model))`). The `Engine` then asks the provider to `load()` a bundle by `model_spec`, which makes runs reproducible and swappable. We use the simpler direct path (`Engine$new(bundle = ...)`) for the rest of this tutorial; a forthcoming tutorial covers providers in full.
-
 ### A toy bundle
 
-Below is the smallest interesting bundle: a single process named `dispatch` that fires every hour, adds a noisy parcel of payload, and drains 4% of the battery. It stops at `time = 6` and records the schema-relevant fields after each event.
+Below is the smallest interesting bundle: a single process named `dispatch` that fires at lognormal-distributed intervals, adds a noisy parcel of payload, and drains the battery by a random amount (mean ~12%). It stops when battery falls below 10% and records schema-relevant fields after each event.
 
 
 ``` r
 toy_bundle <- list(
   time_spec = time_spec(unit = "hours"),
-  propose_events = function(entity, ctx = NULL, process_ids = NULL, current_proposals = NULL) {
-    list(dispatch = list(time_next = entity$last_time + 1, event_type = "dispatch"))
+
+  propose_events = function(entity) {
+    list(dispatch = list(
+      time_next  = entity$last_time + stats::rlnorm(1, meanlog = 0.2, sdlog = 0.4),
+      event_type = "dispatch"
+    ))
   },
-  transition = function(entity, event, ctx = NULL) {
+
+  transition = function(entity, event) {
     if (!identical(event$event_type, "dispatch")) return(list())
     list(
-      payload_kg = max(0, as.numeric(entity$as_list("payload_kg")$payload_kg) + stats::rnorm(1, mean = 1, sd = 0.3)),
-      battery_pct = max(0, as.numeric(entity$as_list("battery_pct")$battery_pct) - 4)
+      payload_kg  = max(0, as.numeric(entity$current$payload_kg) +
+                            stats::rnorm(1, mean = 2, sd = 0.5)),
+      battery_pct = max(0, as.numeric(entity$current$battery_pct) -
+                            stats::rlnorm(1, meanlog = 2.3, sdlog = 0.3))
     )
   },
-  stop = function(entity, event, ctx = NULL) entity$last_time >= 6,
-  observe = function(entity, event, ctx = NULL) {
-    s <- entity$as_list(c("route_zone", "battery_pct", "payload_kg", "deliveries_completed", "prob_rain"))
+
+  stop = function(entity, event) entity$current$battery_pct < 10,
+
+  observe = function(entity, event) {
+    s <- entity$snapshot(c("route_zone", "battery_pct", "payload_kg",
+                           "deliveries_completed", "prob_rain"))
     data.frame(
-      time = entity$last_time,
+      time       = entity$last_time,
       event_type = event$event_type,
       route_zone = s$route_zone,
-      battery_pct = s$battery_pct,
-      payload_kg = s$payload_kg,
-      deliveries_completed = s$deliveries_completed,
-      prob_rain = s$prob_rain
+      battery_pct = round(s$battery_pct, 1),
+      payload_kg  = round(s$payload_kg, 2),
+      deliveries  = s$deliveries_completed,
+      prob_rain   = s$prob_rain
     )
   }
 )
 ```
 
-Notice that nothing in `toy_bundle` knows the schema directly — the bundle reads variables through `entity$as_list()` and writes them back via the named list returned by `transition()`. The engine will run those returned values through schema validation before they are committed to the entity.
+Notice that nothing in `toy_bundle` knows the schema directly — the bundle reads variables through `entity$current` (or `entity$snapshot()`) and writes them back via the named list returned by `transition()`. The engine will run those returned values through schema validation before they are committed to the entity.
+
+The `observe()` function uses `entity$snapshot(vars)`, which returns the current values of the requested variables as a named list. This is the idiomatic way to build observation records — it respects derived variables, and is concise.
 
 ### Constructing the Entity
 
@@ -184,38 +182,31 @@ eng <- Engine$new(bundle = toy_bundle)
 out <- eng$run(p, max_events = 200, return_observations = TRUE)
 
 tail(out$events, 6)
-#>   j time event_type
-#> 2 1    1   dispatch
-#> 3 2    2   dispatch
-#> 4 3    3   dispatch
-#> 5 4    4   dispatch
-#> 6 5    5   dispatch
-#> 7 6    6   dispatch
+#>    j      time event_type
+#> 5  4  5.827972   dispatch
+#> 6  5  6.780633   dispatch
+#> 7  6  7.980279   dispatch
+#> 8  7  9.676645   dispatch
+#> 9  8 11.346697   dispatch
+#> 10 9 12.911766   dispatch
 tail(out$observations, 6)
-#>   time event_type route_zone battery_pct payload_kg deliveries_completed
-#> 1    1   dispatch      urban          96  0.8120639                    0
-#> 2    2   dispatch      urban          92  1.8671569                    0
-#> 3    3   dispatch      urban          88  2.6164683                    0
-#> 4    4   dispatch      urban          84  4.0950525                    0
-#> 5    5   dispatch      urban          80  5.1939048                    0
-#> 6    6   dispatch      urban          76  5.9477643                    0
-#>   prob_rain
-#> 1       0.5
-#> 2       0.5
-#> 3       0.5
-#> 4       0.5
-#> 5       0.5
-#> 6       0.5
+#>        time event_type route_zone battery_pct payload_kg deliveries prob_rain
+#> 4  5.827972   dispatch      urban        61.4       9.38          0       0.5
+#> 5  6.780633   dispatch      urban        47.4      10.27          0       0.5
+#> 6  7.980279   dispatch      urban        34.2      12.27          0       0.5
+#> 7  9.676645   dispatch      urban        21.0      14.56          0       0.5
+#> 8 11.346697   dispatch      urban        15.5      16.60          0       0.5
+#> 9 12.911766   dispatch      urban         6.0      18.57          0       0.5
 out$entity$state(c("route_zone", "battery_pct", "payload_kg"))
 #> <flux_state>
 #> $route_zone
 #> [1] "urban"
 #> 
 #> $battery_pct
-#> [1] 76
+#> [1] 6.005718
 #> 
 #> $payload_kg
-#> [1] 5.947764
+#> [1] 18.57235
 ```
 
 `out$events` is the engine's authoritative event log; `out$observations` is whatever your `observe()` hook accumulated; and `out$entity` is the same `p` from above, now mutated with the post-run state.
@@ -251,15 +242,17 @@ Now we'll build a bundle with two competing processes:
 - a `dispatch` process (as before, with a random inter-arrival time so it doesn't collide with weather), and
 - a `weather` process that fires on its own clock and updates the entire `weather` block at once via `update_block()`.
 
+Having multiple processes means `propose_events()` returns more than one entry in its named list. Each key is a **process_id** — a logical name for an independent event source. Processes don't know about each other; the engine picks the one with the smallest `time_next` (with lexicographic `process_id` as a tie-breaker). This is how you model systems with multiple independent clocks or causal streams.
+
 
 ``` r
 weather_aware_bundle <- list(
   time_spec = time_spec(unit = "hours"),
 
-  propose_events = function(entity, ctx = NULL, process_ids = NULL, current_proposals = NULL) {
+  propose_events = function(entity) {
     list(
       dispatch = list(
-        time_next  = entity$last_time + stats::rexp(1, rate = 1.0),
+        time_next  = entity$last_time + stats::rlnorm(1, meanlog = 0.2, sdlog = 0.4),
         event_type = "dispatch"
       ),
       weather = list(
@@ -269,18 +262,16 @@ weather_aware_bundle <- list(
     )
   },
 
-  transition = function(entity, event, ctx = NULL) {
+  transition = function(entity, event) {
     if (identical(event$event_type, "dispatch")) {
       return(list(
-        payload_kg  = max(0, as.numeric(entity$as_list("payload_kg")$payload_kg) +
-                              stats::rnorm(1, mean = 1, sd = 0.3)),
-        battery_pct = max(0, as.numeric(entity$as_list("battery_pct")$battery_pct) - 4)
+        payload_kg  = max(0, as.numeric(entity$current$payload_kg) +
+                              stats::rnorm(1, mean = 2, sd = 0.5)),
+        battery_pct = max(0, as.numeric(entity$current$battery_pct) -
+                              stats::rlnorm(1, meanlog = 2.3, sdlog = 0.3))
       ))
     }
     if (identical(event$event_type, "weather_refresh")) {
-      # Single call updates *both* weather variables; require_all = TRUE (default)
-      # forces the caller to supply every block member, which catches typos and
-      # keeps multivariate state consistent.
       return(update_block(entity, "weather", list(
         prob_rain = stats::runif(1, 0, 1),
         wind_kph  = max(0, stats::rnorm(1, mean = 15, sd = 5))
@@ -289,14 +280,14 @@ weather_aware_bundle <- list(
     list()
   },
 
-  stop = function(entity, event, ctx = NULL) entity$last_time >= 6,
+  stop = function(entity, event) entity$current$battery_pct < 10,
 
-  observe = function(entity, event, ctx = NULL) {
-    s <- entity$as_list(c("battery_pct", "payload_kg", "prob_rain", "wind_kph"))
+  observe = function(entity, event) {
+    s <- entity$snapshot(c("battery_pct", "payload_kg", "prob_rain", "wind_kph"))
     data.frame(
       time        = entity$last_time,
       event_type  = event$event_type,
-      battery_pct = s$battery_pct,
+      battery_pct = round(s$battery_pct, 1),
       payload_kg  = round(s$payload_kg, 2),
       prob_rain   = round(s$prob_rain, 2),
       wind_kph    = round(s$wind_kph, 1)
@@ -329,14 +320,17 @@ p_w <- Entity$new(
 eng_w <- Engine$new(bundle = weather_aware_bundle)
 out_w <- eng_w$run(p_w, max_events = 200, return_observations = TRUE)
 tail(out_w$observations, 10)
-#>        time      event_type battery_pct payload_kg prob_rain wind_kph
-#> 1 0.8094961 weather_refresh         100       0.00      0.57     10.2
-#> 2 0.8990223        dispatch          96       0.79      0.57     10.2
-#> 3 2.7318775        dispatch          92       2.10      0.57     10.2
-#> 4 3.3794725 weather_refresh          92       2.10      0.39     19.9
-#> 5 4.4617087        dispatch          88       2.77      0.39     19.9
-#> 6 5.7024773 weather_refresh          88       2.77      0.87     15.2
-#> 7 6.3913353        dispatch          84       3.90      0.87     15.2
+#>         time      event_type battery_pct payload_kg prob_rain wind_kph
+#> 3   2.930681        dispatch        79.0       3.85      0.17     22.9
+#> 4   3.974537        dispatch        71.9       5.67      0.17     22.9
+#> 5   4.687483 weather_refresh        71.9       5.67      0.84     12.2
+#> 6   5.495019        dispatch        55.8       7.07      0.84     12.2
+#> 7   5.502898 weather_refresh        55.8       7.07      0.81      2.7
+#> 8   6.981202        dispatch        36.0       9.51      0.81      2.7
+#> 9   7.342054 weather_refresh        36.0       9.51      0.86     14.2
+#> 10  8.517137        dispatch        30.1      11.22      0.86     14.2
+#> 11  9.368401        dispatch        19.5      13.77      0.86     14.2
+#> 12 10.828020        dispatch         1.9      15.35      0.86     14.2
 ```
 
 Notice how `prob_rain` and `wind_kph` only ever change on rows whose `event_type` is `weather_refresh`, and they always change *together*. That's the contract the block buys you.
@@ -371,15 +365,10 @@ batch <- run_cohort(
   backend = "none",
   seed = 123
 )
+#> Error: Value for 'payload_kg' must be <= 20.
 
 head(batch$index)
-#>   entity_id param_draw_id sim_id run_id
-#> 1       id1             1      1  run_1
-#> 2       id1             1      2  run_2
-#> 3       id1             2      1  run_3
-#> 4       id1             2      2  run_4
-#> 5       id1             3      1  run_5
-#> 6       id1             3      2  run_6
+#> Error: object 'batch' not found
 ```
 
 ## Decision points, actions, and trajectory logging
@@ -417,8 +406,14 @@ the policy interface explicit: any schema without `$decision_points` runs as a
 pure generative model regardless of what policy you pass.
 
 For our delivery example, a natural decision point is *after each dispatch*: once
-a delivery is completed, should the drone surge to priority mode or continue
-normally?
+a delivery is completed, should the drone switch to surge-priority mode (faster
+routing, higher power draw) to complete remaining deliveries before the battery
+dies, or continue in normal mode (conserving energy)?
+
+The motivation: in surge mode, deliveries complete faster (shorter intervals) but
+at the cost of ~50% more battery drain per dispatch. A smart policy must decide
+when the energy savings from normal mode are no longer worth the risk of running
+out before finishing the route.
 
 
 ``` r
@@ -516,20 +511,27 @@ rather than `Engine$new()`. It validates that the schema, bundle, policy, and
 dp_bundle <- list(
   time_spec = time_spec(unit = "hours"),
 
-  propose_events = function(entity, sim_ctx = NULL, param_ctx = NULL,
-                            process_ids = NULL, current_proposals = NULL) {
+  propose_events = function(entity, sim_ctx = NULL, param_ctx = NULL) {
+    # In surge mode: shorter intervals (faster delivery) but transition() will
+    # drain more battery.
+    rate <- if (identical(entity$current$priority_mode, "surge")) 1.8 else 1.0
     list(dispatch = list(
-      time_next  = entity$last_time + stats::rexp(1, rate = 1.0),
+      time_next  = entity$last_time + stats::rlnorm(1, meanlog = log(1/rate), sdlog = 0.3),
       event_type = "dispatch"
     ))
   },
 
   transition = function(entity, event, sim_ctx = NULL, param_ctx = NULL) {
     if (identical(event$event_type, "dispatch")) {
+      # Surge mode drains ~50% more battery per dispatch
+      drain <- if (identical(entity$current$priority_mode, "surge")) {
+        stats::rlnorm(1, meanlog = 2.8, sdlog = 0.2)   # ~16% mean
+      } else {
+        stats::rlnorm(1, meanlog = 2.3, sdlog = 0.3)   # ~10% mean
+      }
       return(list(
-        # Pick up and deliver a package; decrease battery
         payload_kg           = 0,
-        battery_pct          = max(0, as.numeric(entity$current$battery_pct) - 4),
+        battery_pct          = max(0, as.numeric(entity$current$battery_pct) - drain),
         deliveries_completed = as.integer(entity$current$deliveries_completed) + 1L
       ))
     }
@@ -543,12 +545,13 @@ dp_bundle <- list(
   },
 
   observe = function(entity, event, sim_ctx = NULL, param_ctx = NULL) {
+    s <- entity$snapshot(c("battery_pct", "deliveries_completed", "priority_mode"))
     data.frame(
       time                 = entity$last_time,
       event_type           = event$event_type,
-      battery_pct          = entity$current$battery_pct,
-      deliveries_completed = entity$current$deliveries_completed,
-      priority_mode        = entity$current$priority_mode
+      battery_pct          = round(s$battery_pct, 1),
+      deliveries_completed = s$deliveries_completed,
+      priority_mode        = s$priority_mode
     )
   }
 )
@@ -596,66 +599,67 @@ firing. Each record answers four questions:
 ``` r
 # How many decision points fired?
 length(out_dp$trajectory_records)
-#> [1] 23
+#> [1] 8
 
 # Inspect the first record
 tr1 <- out_dp$trajectory_records[[1]]
 cat("Time:          ", tr1$t, "\n")
-#> Time:           0.0483461
+#> Time:           1.986102
 cat("Decision point:", tr1$decision_point_id, "\n")
 #> Decision point: post_dispatch
-cat("Action taken:  ", tr1$realized_event$event_type, "\n")
-#> Action taken:   dispatch
+cat("Trigger event: ", tr1$realized_event$event_type, "\n")
+#> Trigger event:  dispatch
+cat("Action taken:  ", tr1$selected_action$action_type, "\n")
+#> Action taken:   stand_down
 cat("Battery before:", tr1$state_before$battery_pct, "\n")
 #> Battery before: 100
 cat("Battery after: ", tr1$state_after$battery_pct, "\n")
-#> Battery after:  96
+#> Battery after:  93.03451
 ```
 
 
 ``` r
 # Build a summary table across all trajectory records
-tr_df <- do.call(rbind, lapply(out_dp$trajectory_records, function(tr) {
-  data.frame(
-    t              = tr$t,
-    action_taken   = tr$realized_event$event_type,
-    battery_before = tr$state_before$battery_pct,
-    deliveries     = tr$state_before$deliveries_completed,
-    stringsAsFactors = FALSE
-  )
-}))
-
+tr_df <- trajectory_table(out_dp$trajectory_records,
+                          vars = c("battery_pct", "deliveries_completed"))
 head(tr_df, 10)
-#>            t action_taken battery_before deliveries
-#> 1  0.0483461     dispatch            100          0
-#> 2  1.8114843     dispatch             96          1
-#> 3  2.4071082     dispatch             92          2
-#> 4  3.2089655     dispatch             88          3
-#> 5  3.4635986     dispatch             84          4
-#> 6  3.5091008     dispatch             80          5
-#> 7  4.3071277     dispatch             76          6
-#> 8  6.2245678     dispatch             72          7
-#> 9  6.6198079     dispatch             68          8
-#> 10 7.6276978     dispatch             64          9
+#>           t decision_point_id trigger_event action_taken battery_pct_before
+#> 1  1.986102     post_dispatch      dispatch   stand_down          100.00000
+#> 2  2.919758     post_dispatch      dispatch   stand_down           93.03451
+#> 3  4.221382     post_dispatch      dispatch   stand_down           85.58015
+#> 4  6.200366     post_dispatch      dispatch   stand_down           75.94986
+#> 5  8.233018     post_dispatch      dispatch        surge           64.84819
+#> 6  8.922254     post_dispatch      dispatch        surge           53.85577
+#> 7  9.527006     post_dispatch      dispatch        surge           40.10300
+#> 8 10.263482     post_dispatch      dispatch        surge           20.06496
+#>   battery_pct_after deliveries_completed_before deliveries_completed_after
+#> 1          93.03451                           0                          1
+#> 2          85.58015                           1                          2
+#> 3          75.94986                           2                          3
+#> 4          64.84819                           3                          4
+#> 5          53.85577                           4                          5
+#> 6          40.10300                           5                          6
+#> 7          20.06496                           6                          7
+#> 8           0.00000                           7                          8
 ```
 
 Notice the pattern: the policy switches to "surge" as the battery drops below
-60%, then back to "stand_down" once an action is re-evaluated. Because
-`TrajectoryRecord` captures state before and after each decision, you can
-reconstruct exactly what the policy saw and why it acted — which is the foundation
-for policy comparison, counterfactual analysis, and RL reward computation in
-`fluxSimulate`.
+60%, then stays in surge mode for remaining deliveries (accepting higher drain
+to complete faster). Because `TrajectoryRecord` captures state before and after
+each decision, you can reconstruct exactly what the policy saw and why it acted
+— which is the foundation for policy comparison, counterfactual analysis, and RL
+reward computation in `fluxSim`.
 
 ### What trajectory records enable downstream
 
 `TrajectoryRecord` is not just an audit log. It is the structured surface that the
 rest of the ecosystem builds on:
 
-- **Policy comparison** (`fluxSimulate`): run the same entity under two policies
+- **Policy comparison** (`fluxSim`): run the same entity under two policies
   with the same seed; diff the `trajectory_records` to see where they diverge.
 - **Counterfactual analysis**: fix the seed and parameter draw; vary only the
   policy; compare outcomes.
-- **RL training** (`fluxSimulate`): the `(observation, action, reward,
+- **RL training** (`fluxSim`): the `(observation, action, reward,
   next_state)` tuple for each record becomes a training transition. The reward
   function is defined externally and applied to the record.
 - **Audit and explainability**: for any individual run, you can reconstruct the
