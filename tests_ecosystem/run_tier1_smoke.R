@@ -81,19 +81,19 @@ tryCatch({
     time_spec = time_spec(unit = "hours"),
     event_catalog = c("VISIT", "RUN_END"),
     terminal_events = "RUN_END",
-    propose_events = function(entity, ctx = NULL, process_ids = NULL, current_proposals = NULL) {
+    propose_events = function(entity, process_ids = NULL, current_proposals = NULL) {
       list(
         visit = list(time_next = entity$last_time + 1, event_type = "VISIT"),
         end = list(time_next = 3, event_type = "RUN_END")
       )
     },
-    transition = function(entity, event, ctx = NULL) {
+    transition = function(entity, event) {
       if (!identical(event$event_type, "VISIT")) return(list())
       list(workload = as.numeric(entity$as_list("workload")$workload) + 1)
     },
-    stop = function(entity, event, ctx = NULL) identical(event$event_type, "RUN_END")
+    stop = function(entity, event) identical(event$event_type, "RUN_END")
   )
-  eng <- Engine$new(provider = list(load = function(model_spec = NULL, ...) bundle))
+  eng <- Engine$new(bundle = bundle)
   ents <- list(
     e1 = Entity$new(init = list(route_zone = "urban", workload = 0), schema = schema),
     e2 = Entity$new(init = list(route_zone = "suburban", workload = 1), schema = schema)

@@ -103,7 +103,7 @@ schema$age
 #> $validate
 #> function (x) 
 #> length(x) == 1L && (is.na(x) || (is.finite(x) && x >= 0))
-#> <environment: 0x110dbd858>
+#> <environment: 0x110a2d3e8>
 schema$ldl
 #> $type
 #> [1] "continuous"
@@ -117,7 +117,7 @@ schema$ldl
 #> $validate
 #> function (x) 
 #> length(x) == 1L && (is.na(x) || is.finite(x))
-#> <environment: 0x110dbd858>
+#> <environment: 0x110a2d3e8>
 #> 
 #> $blocks
 #> [1] "lipids"
@@ -344,7 +344,7 @@ out1 <- eng$run(p1, max_events = max_events, max_time = horizon_years, return_ob
 traj1 <- out1$observations
 #> Error: object 'out1' not found
 traj1$entity_id <- pid1
-#> Error: object 'traj1' not found
+#> Error in eval(ei, envir): object 'traj1' not found
 
 # P2
 pid2 <- entity_high_risk$id
@@ -361,7 +361,7 @@ out2 <- eng$run(p2, max_events = max_events, max_time = horizon_years, return_ob
 traj2 <- out2$observations
 #> Error: object 'out2' not found
 traj2$entity_id <- pid2
-#> Error: object 'traj2' not found
+#> Error in eval(ei, envir): object 'traj2' not found
 
 traj1
 #> Error: object 'traj1' not found

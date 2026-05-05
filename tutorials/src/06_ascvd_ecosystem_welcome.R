@@ -35,10 +35,8 @@ text(7.4, 2.6, "MI", pos = 4)
 library(fluxCore)
 
 # Best practice: declare the model time unit up front.
-# We do this in a shared "context" object (ctx), which is passed into the Engine
-# at run-time. Downstream packages can use ctx$time$unit to label and sanity-check
-# time-related quantities.
-ctx <- fluxCore::set_time_unit(ctx = list(), unit = "years")
+# In v2, this is done via time_spec in the bundle itself; the Engine and all
+# downstream packages read ctx$time$unit from the canonical bundle time_spec.
 
 # fluxCore schemas are named lists of variable descriptors.
 # Each variable has at least:
@@ -145,7 +143,7 @@ hazard_death <- function(state) {
 
 
 ## ----propose_events-----------------------------------------------------------
-propose_events <- function(entity, ctx = NULL, process_ids = NULL, current_proposals = NULL) {
+propose_events <- function(entity, process_ids = NULL, current_proposals = NULL) {
   t0 <- entity$last_time
   s  <- entity$as_list(c("age","sbp","dbp","ldl","hdl","diabetes","smoker"))
 
@@ -191,7 +189,7 @@ propose_events <- function(entity, ctx = NULL, process_ids = NULL, current_propo
 
 
 ## ----transition---------------------------------------------------------------
-transition <- function(entity, event, ctx = NULL) {
+transition <- function(entity, event) {
   # Age updates deterministically from the model time unit (years in this vignette).
   dt <- as.numeric(event$time_next - entity$last_time)
 
@@ -215,13 +213,13 @@ transition <- function(entity, event, ctx = NULL) {
 
 
 ## ----stop---------------------------------------------------------------------
-stop <- function(entity, event, ctx = NULL) {
+stop <- function(entity, event) {
   identical(event$event_type, "DEATH")
 }
 
 
 ## ----observe------------------------------------------------------------------
-observe <- function(entity, event, ctx = NULL) {
+observe <- function(entity, event) {
   s <- entity$as_list(c("age","sbp","dbp","ldl","hdl","diabetes","smoker"))
   data.frame(
     time       = entity$last_time,
@@ -239,13 +237,14 @@ observe <- function(entity, event, ctx = NULL) {
 
 
 ## ----refresh_rules------------------------------------------------------------
-refresh_rules <- function(entity, last_event, changes, ctx = NULL) {
+refresh_rules <- function(entity, last_event, changes) {
   "ALL"
 }
 
 
 ## ----bundle-------------------------------------------------------------------
 bundle <- list(
+  time_spec      = fluxCore::time_spec(unit = "years"),
   propose_events = propose_events,
   transition     = transition,
   stop           = stop,
@@ -257,20 +256,9 @@ names(bundle)
 
 
 ## ----engine-------------------------------------------------------------------
-# The registry maps a model "name" to a function that can build its ModelBundle.
-# Here, the builder simply returns the bundle we already constructed.
-prov <- PackageProvider$new(
-  registry = list(
-    # Minimal builder: ignore args and return the bundle we built above.
-    ascvd_toy = function(...) bundle
-  )
-)
-
-eng <- Engine$new(
-  provider   = prov,
-  model_spec = list(name = "ascvd_toy"),
-  ctx        = ctx
-)
+# Pass the bundle directly to Engine$new(). The engine validates the bundle
+# and makes the time_spec available for all downstream packages.
+eng <- Engine$new(bundle = bundle)
 
 
 ## ----entities-----------------------------------------------------------------
@@ -315,7 +303,7 @@ p1 <- fluxCore::Entity$new(
   time0 = 0,
   event_type0 = "init"
 )
-out1 <- eng$run(p1, max_events = max_events, max_time = horizon_years, return_observations = TRUE, ctx = ctx)
+out1 <- eng$run(p1, max_events = max_events, max_time = horizon_years, return_observations = TRUE)
 traj1 <- out1$observations
 traj1$entity_id <- pid1
 
@@ -329,7 +317,7 @@ p2 <- fluxCore::Entity$new(
   time0 = 0,
   event_type0 = "init"
 )
-out2 <- eng$run(p2, max_events = max_events, max_time = horizon_years, return_observations = TRUE, ctx = ctx)
+out2 <- eng$run(p2, max_events = max_events, max_time = horizon_years, return_observations = TRUE)
 traj2 <- out2$observations
 traj2$entity_id <- pid2
 

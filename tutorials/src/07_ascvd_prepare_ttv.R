@@ -97,10 +97,7 @@ knitr::kable(meds_2,     caption = "Medications for two example entities")
 
 
 ## ----time_mapping-------------------------------------------------------------
-ctx <- fluxCore::set_time_unit(
-  ctx = list(),
-  unit = "weeks"
-)
+ts <- fluxCore::time_spec(unit = "weeks")
 
 example_ids <- head(ehr$entities$entity_id, 2)
 
@@ -129,7 +126,7 @@ obs <- prepare_observations(
       group    = "vitals"
     )
   ),
-  ctx = ctx
+  time_spec = ts
 )
 
 obs |>
@@ -144,7 +141,7 @@ events <- prepare_events(
   id_col    = "entity_id",
   time_col  = "event_date",
   type_col  = "event",
-  ctx       = ctx
+  time_spec = ts
 )
 
 events |>
@@ -225,7 +222,7 @@ ttv_major <- build_ttv_event_process(
   splits       = splits,
   spec         = event_settings,
   followup     = followup,
-  ctx          = ctx
+  time_spec    = ts
 )
 
 ttv_major |>
