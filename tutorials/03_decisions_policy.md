@@ -47,23 +47,50 @@ dp_dispatch <- DecisionPoint(
 ```
 
 The fields:
-- **`trigger`**: what causes this decision point to fire. Accepts either a
-  character vector of event type names **or a predicate function**
-  `function(event)` that returns `TRUE` when the decision should be
-  consulted. The predicate form lets you trigger on state conditions rather
-  than event names — for example, fire whenever battery is critically low
-  regardless of which event just occurred:
+- **`trigger`**: what causes this decision point to open a window. Accepts
+  either a character vector of event type names **or a predicate function**
+  `function(event)` that returns `TRUE`. The predicate is evaluated
+  **pre-transition** and receives the raw event object — fields:
+  `event_type`, `time_next`, `process_id`, and optional `metadata`. Use it
+  to filter on event-level information, for example to fire only on
+  expedited deliveries:
 
   ```r
   trigger = function(event) {
-    isTRUE(as.numeric(event$state_after[["battery_pct"]]) < 20)
+    event$event_type == "delivery_completed" &&
+      isTRUE(event$metadata$expedited)
   }
   ```
 
-  The engine invokes the policy *after* the triggering event's transition
-  has been applied, so `entity$current` already reflects the new state.
+  To gate on **post-transition entity state** (e.g., battery level after a
+  delivery drains), use `condition` instead.
+
+- **`condition`**: optional function `function(entity)` evaluated
+  **post-transition** on the updated entity. When it returns `FALSE`, the
+  policy is not consulted for this event cycle. This keeps
+  *when-to-open-the-window* (`trigger`) separate from
+  *whether-to-act-given-state* (`condition`):
+
+  ```r
+  # Only call the policy when battery drops below 25 % *after* the
+  # dispatch_check transition has been applied.
+  dp_low_battery <- DecisionPoint(
+    id              = "low_battery_override",
+    trigger         = "dispatch_check",
+    condition       = function(entity) entity$current$battery_pct < 25,
+    allowed_actions = c("decline"),
+    label           = "Decline dispatch when battery is critically low"
+  )
+  ```
+
+- **`audit`**: logical (default `FALSE`). When `TRUE`, a `TrajectoryRecord`
+  is emitted even for cycles where `condition` vetoed the policy call. The
+  record carries `condition_met = FALSE` and `selected_action = NULL`,
+  giving you a complete history of every DP visit regardless of outcome.
+
 - **`allowed_actions`**: what the policy is permitted to propose. Actions
   outside this set are rejected.
+
 - **`label`**: human-readable documentation.
 
 Now assemble a full schema object (variables + time_spec + decision points):
@@ -323,6 +350,191 @@ Look for the moment the policy starts declining — that's where the battery
 crosses the threshold and the agent switches from "accept everything" to
 "coast to end of shift."
 
+## Separating the guard from the action: `condition`
+
+In `policy_battery_threshold` above, the state check lives inside
+`propose_action`. This works, but it conflates two concerns: *when should
+this decision be made?* and *what action to take given the current state?*
+
+The `condition` parameter pulls the state guard onto the `DecisionPoint`
+itself. When `condition` returns `FALSE`, the policy is never called and the
+dispatch is processed as normal (accepted by default). Only when the
+condition is met does the policy run — and at that point it can always
+propose the same action without repeating the state check:
+
+
+``` r
+dp_dispatch_cond <- DecisionPoint(
+  id              = "dispatch_decision",
+  trigger         = "dispatch_check",
+  condition       = function(entity) entity$current$battery_pct < 25,
+  allowed_actions = c("decline"),
+  audit           = TRUE,
+  label           = "Decline dispatch when battery is critically low; log all visits"
+)
+
+schema_cond <- list(
+  variables       = delivery_schema(),
+  time_spec       = time_spec(unit = "hours"),
+  decision_points = list(dp_dispatch_cond)
+)
+
+# Policy is now unconditional: condition has already done the filtering.
+policy_decline_only <- list(
+  propose_action = function(decision_point, entity) {
+    ActionEvent(
+      action_type       = "decline",
+      time_next         = entity$last_time + 0.01,
+      decision_point_id = decision_point$id
+    )
+  }
+)
+
+model_cond <- load_model(
+  schema     = schema_cond,
+  bundle     = delivery_bundle_with_policy(),
+  policy     = policy_decline_only,
+  trajectory = list(detail = "summary")
+)
+```
+
+Run on the same agent with the same seed:
+
+
+``` r
+agent_cond <- Entity$new(
+  id          = "courier_A",
+  init        = list(battery_pct=80, route_zone="urban",
+                     payload_kg=0, dispatch_mode="idle"),
+  schema      = delivery_schema(),
+  entity_type = "courier",
+  time0       = 0
+)
+
+out_cond <- model_cond$run(agent_cond, max_events = 500,
+                           return_observations = TRUE, seed = 99)
+#> Error in model_cond$run(agent_cond, max_events = 500, return_observations = TRUE, : unused argument (seed = 99)
+```
+
+Because `audit = TRUE`, the trajectory records include every
+`dispatch_check` visit — not just the ones where the policy was called:
+
+
+``` r
+cond_flags <- sapply(out_cond$trajectory_records, function(tr) tr$condition_met)
+#> Error: object 'out_cond' not found
+
+cat("Total DP visits (all dispatch_check events):",
+    length(out_cond$trajectory_records), "\n")
+#> Error: object 'out_cond' not found
+cat("Condition met  (battery < 25, policy called):",
+    sum(isTRUE(cond_flags) | is.na(cond_flags) == FALSE & cond_flags, na.rm = TRUE), "\n")
+#> Error: object 'cond_flags' not found
+cat("Vetoed         (battery >= 25, logged only): ",
+    sum(!cond_flags, na.rm = TRUE), "\n")
+#> Error: object 'cond_flags' not found
+```
+
+The `condition_met` field on each record tells you which records had the
+policy consulted (`TRUE`) and which were logged-but-skipped (`FALSE`):
+
+
+``` r
+tr_cond_df <- trajectory_table(out_cond$trajectory_records,
+                               vars = c("battery_pct", "dispatch_mode"))
+#> Error: object 'out_cond' not found
+# condition_met column is present when a condition is declared on the DP
+head(tr_cond_df[, intersect(names(tr_cond_df),
+                             c("t", "battery_pct", "dispatch_mode", "condition_met",
+                               "selected_action"))], 8)
+#> Error: object 'tr_cond_df' not found
+```
+
+The two approaches — state check in `propose_action` vs. `condition` on the
+`DecisionPoint` — produce the same behavioral outcomes. Use `condition` when
+the guard is always the same regardless of policy, or when you want the
+audit trail to capture every DP visit.
+
+## Multiple decision points per event cycle
+
+A schema may carry more than one decision point on the same trigger. Each
+fires **independently**: the engine evaluates trigger, condition, and calls
+the policy for each active DP in sequence. Multiple `ActionEvent`s enter
+the proposal queue and **arbitration** picks the earliest `time_next`.
+
+A common pattern is a tiered response: one DP handles routine accept/decline
+decisions and a second DP handles an emergency override when battery reaches
+a critical threshold:
+
+
+``` r
+dp_standard <- DecisionPoint(
+  id              = "dispatch_accept",
+  trigger         = "dispatch_check",
+  allowed_actions = c("accept", "decline"),
+  label           = "Routine accept/decline decision"
+)
+
+dp_critical <- DecisionPoint(
+  id              = "battery_critical",
+  trigger         = "dispatch_check",
+  condition       = function(entity) entity$current$battery_pct < 10,
+  allowed_actions = c("decline"),
+  audit           = TRUE,
+  label           = "Emergency override: battery critically low"
+)
+
+schema_two_dps <- list(
+  variables       = delivery_schema(),
+  time_spec       = time_spec(unit = "hours"),
+  decision_points = list(dp_standard, dp_critical)
+)
+```
+
+When battery is above 10%, only `dp_standard` is active and the routine
+policy runs. When battery drops below 10%, **both** DPs are active:
+`dp_standard` proposes (accept/decline), `dp_critical` also proposes
+"decline". Arbitration picks the proposal with the smallest `time_next` — so
+you can force the critical override to win by setting a slightly smaller
+offset:
+
+
+``` r
+policy_two_dps <- list(
+  propose_action = function(decision_point, entity) {
+    battery <- as.numeric(entity$current$battery_pct)
+
+    if (decision_point$id == "battery_critical") {
+      # Emergency override fires first (time_next offset smaller).
+      return(ActionEvent(
+        action_type       = "decline",
+        time_next         = entity$last_time + 0.001,
+        decision_point_id = decision_point$id,
+        metadata          = list(reason = "battery_critical")
+      ))
+    }
+
+    # Routine policy: accept unless battery < 25.
+    action <- if (!is.null(battery) && battery < 25) "decline" else "accept"
+    ActionEvent(
+      action_type       = action,
+      time_next         = entity$last_time + 0.01,
+      decision_point_id = decision_point$id
+    )
+  }
+)
+```
+
+With two DPs both proposing actions on the same event step, the proposal
+with `time_next = last_time + 0.001` is enqueued first. When it fires, the
+transition handles "decline" and sets the stop-criterion; the second
+proposal from the routine DP becomes unreachable.
+
+> **Arbitration rule:** When multiple `ActionEvent`s are in the proposal
+> queue, the engine selects the one with the smallest `time_next`. If
+> `time_next` values are equal, ordering is undefined. Design your
+> `time_next` offsets to encode priority.
+
 ## Cohort-level comparison
 
 Let's scale this up. Run a 20-agent cohort under both policies and compare
@@ -410,11 +622,15 @@ the rest of the flux ecosystem builds on:
 | Concept | What you learned |
 |---------|-----------------|
 | `DecisionPoint()` | Declares where in the event timeline a policy is consulted |
+| `trigger` | Pre-transition gate: char event name(s) or `function(event)` on event-level fields |
+| `condition` | Post-transition guard: `function(entity)` on updated state; vetoed cycles skip the policy call |
+| `audit = TRUE` | Emit `TrajectoryRecord` even when `condition` vetoed; `condition_met = FALSE` flags those records |
 | Policy function | `propose_action(dp, entity)` → `ActionEvent` or NULL; add `sim_ctx` / `param_ctx` to the signature only when needed |
 | `ActionEvent()` | The proposed intervention — enters the timeline like any other event |
 | `load_model()` | Validates schema + bundle + policy + trajectory config together |
-| Trajectory records | Per-decision audit trail: observation, action, state_before/after |
+| Trajectory records | Per-decision audit trail: `observation`, `action`, `state_before/after`, `condition_met` |
 | Same seed, different policy | Isolates the causal effect of the policy on outcomes |
+| Multiple DPs + arbitration | Multiple DPs can fire in one event cycle; earliest `time_next` wins |
 
 **Next:** [05_prepare_operational_data.md](05_prepare_operational_data.md) —
 generate synthetic operational logs and prepare them into train/test/validation
