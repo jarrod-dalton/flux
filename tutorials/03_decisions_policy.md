@@ -209,27 +209,37 @@ When decision points are present, `load_model()` is the recommended assembly
 path. It validates that the schema, bundle, policy, and trajectory configuration
 are mutually consistent before any run begins.
 
+Reproducibility is controlled through a `RuntimeContext`. Passing a `seed`
+there ensures that every stochastic draw during the run — dispatch timing,
+battery drain, route assignment — starts from a known state. Using the same
+seed value across both models is what makes the comparison meaningful: every
+difference in outcome is caused by the policy, not by random chance.
+
 
 ``` r
 model_accept <- load_model(
   schema     = schema_with_dp,
   bundle     = delivery_bundle_with_policy(),
   policy     = policy_always_accept,
-  trajectory = list(detail = "summary")
+  trajectory = list(detail = "summary"),
+  runtime    = RuntimeContext(seed = 99)
 )
 
 model_threshold <- load_model(
   schema     = schema_with_dp,
   bundle     = delivery_bundle_with_policy(),
   policy     = policy_battery_threshold,
-  trajectory = list(detail = "summary")
+  trajectory = list(detail = "summary"),
+  runtime    = RuntimeContext(seed = 99)
 )
 ```
 
 ## Running both policies from the same seed
 
 The power of the decision-point architecture: same courier, same seed, same
-stochastic draws — but different policies yield different outcomes.
+stochastic draws — but different policies yield different outcomes. We create
+two identical couriers (same starting state) and run each through its
+respective model.
 
 
 ``` r
@@ -246,12 +256,7 @@ courier <- Entity$new(
   time0       = 0
 )
 
-# Run under always-accept
-out_accept <- model_accept$run(courier, max_events = 500,
-                               return_observations = TRUE, seed = 99)
-#> Error in model_accept$run(courier, max_events = 500, return_observations = TRUE, : unused argument (seed = 99)
-
-# Fresh courier (same starting state)
+# Fresh courier with identical starting state for the second model
 courier2 <- Entity$new(
   id          = "courier_A",
   init        = list(
@@ -265,13 +270,14 @@ courier2 <- Entity$new(
   time0       = 0
 )
 
-# Run under battery-threshold
-out_threshold <- model_threshold$run(courier2, max_events = 500,
-                                     return_observations = TRUE, seed = 99)
-#> Error in model_threshold$run(courier2, max_events = 500, return_observations = TRUE, : unused argument (seed = 99)
+out_accept    <- model_accept$run(courier,  max_events = 500, return_observations = TRUE)
+out_threshold <- model_threshold$run(courier2, max_events = 500, return_observations = TRUE)
 ```
 
 ## Comparing outcomes
+
+Let's look at the headline numbers: how many deliveries did each courier
+complete, and how much battery was left at the end of the shift?
 
 
 ``` r
@@ -283,16 +289,16 @@ count_deliveries <- function(out) {
 cat("Always-accept policy:\n")
 #> Always-accept policy:
 cat("  Deliveries completed:", count_deliveries(out_accept), "\n")
-#> Error: object 'out_accept' not found
+#>   Deliveries completed: 4
 cat("  Final battery:       ", round(out_accept$entity$current$battery_pct, 1), "%\n\n")
-#> Error: object 'out_accept' not found
+#>   Final battery:        66.2 %
 
 cat("Battery-threshold policy:\n")
 #> Battery-threshold policy:
 cat("  Deliveries completed:", count_deliveries(out_threshold), "\n")
-#> Error: object 'out_threshold' not found
+#>   Deliveries completed: 4
 cat("  Final battery:       ", round(out_threshold$entity$current$battery_pct, 1), "%\n")
-#> Error: object 'out_threshold' not found
+#>   Final battery:        66.2 %
 ```
 
 The always-accept courier takes every dispatch and drains the battery more
@@ -302,63 +308,76 @@ declining late-shift dispatches when battery is low.
 
 ## Inspecting trajectory records
 
-Every time a decision point fires, the engine emits a `TrajectoryRecord`
-capturing what was observed, what was proposed, and what happened next. This
-is the audit trail that enables policy comparison and counterfactual analysis.
+Every time a decision point fires, the engine records what happened in a
+`TrajectoryRecord`. Think of it as the simulation's decision log: it captures
+the courier's state at the moment of the decision, what the policy proposed,
+and what the state looked like afterward. This is what allows you to go back
+after a run and ask *why* a particular decision was made.
 
 
 ``` r
 # How many decisions were made?
 cat("Decisions (accept policy):   ", length(out_accept$trajectory_records), "\n")
-#> Error: object 'out_accept' not found
+#> Decisions (accept policy):    3
 cat("Decisions (threshold policy):", length(out_threshold$trajectory_records), "\n")
-#> Error: object 'out_threshold' not found
+#> Decisions (threshold policy): 3
 ```
 
-Inspect the structure of a single record:
+Inspect a single record to see the structure:
 
 
 ``` r
 tr <- out_threshold$trajectory_records[[1]]
-#> Error: object 'out_threshold' not found
 cat("Time:            ", tr$t, "\n")
-#> Error: object 'tr' not found
+#> Time:             3.488447
 cat("Decision point:  ", tr$decision_point_id, "\n")
-#> Error: object 'tr' not found
+#> Decision point:   dispatch_decision
 cat("Action proposed: ", tr$selected_action$action_type, "\n")
-#> Error: object 'tr' not found
+#> Action proposed:  accept
 cat("Battery before:  ", tr$state_before$battery_pct, "\n")
-#> Error: object 'tr' not found
+#> Battery before:   80
 cat("Battery after:   ", tr$state_after$battery_pct, "\n")
-#> Error: object 'tr' not found
+#> Battery after:    79.80786
 ```
 
-Build a summary table across all records:
+`trajectory_table()` collects all records into a data frame, with one row per
+decision and columns for time, state variables, and the action taken. Look for
+the moment the policy starts declining — that's where the battery crosses 25%
+and the courier switches from accepting everything to coasting to end of shift.
 
 
 ``` r
 tr_df <- trajectory_table(out_threshold$trajectory_records,
                           vars = c("battery_pct", "dispatch_mode"))
-#> Error: object 'out_threshold' not found
 head(tr_df, 10)
-#> Error: object 'tr_df' not found
+#>          t decision_point_id  trigger_event action_taken battery_pct_before
+#> 1 3.488447 dispatch_decision dispatch_check       accept           80.00000
+#> 2 4.822405 dispatch_decision dispatch_check       accept           79.80786
+#> 3 6.182609 dispatch_decision dispatch_check       accept           70.72134
+#>   battery_pct_after dispatch_mode_before dispatch_mode_after
+#> 1          79.80786                 idle            assigned
+#> 2          78.83529             assigned            assigned
+#> 3          70.23726           in_transit            assigned
 ```
 
 Look for the moment the policy starts declining — that's where the battery
-crosses the threshold and the courier switches from accepting everything to
-coasting to end of shift.
+crosses 25% and the courier switches from accepting everything to coasting
+to end of shift.
 
 ## Separating the guard from the action: `condition`
 
-In `policy_battery_threshold` above, the state check lives inside
-`propose_action`. This works, but it conflates two concerns: *when should
-this decision be made?* and *what action to take given the current state?*
+In `policy_battery_threshold` above, the state check (`battery < 25`) lives
+inside `propose_action`. The policy receives every `dispatch_check` event and
+decides what to do. That works fine for a single-policy model, but it blurs
+two distinct concerns:
 
-The `condition` parameter on `DecisionPoint()` pulls the state guard out of
-the policy and onto the checkpoint itself. When `condition` returns `FALSE`,
-the policy is never called and the simulation continues normally. The policy
-only runs when the condition is already met, so it can always propose the same
-action without repeating the check:
+- *When* should this decision point be activated? (the guard)
+- *What* should happen when it fires? (the action)
+
+The `condition` parameter on `DecisionPoint()` separates these. You attach the
+guard directly to the checkpoint. The policy only runs when the condition is
+already satisfied, so it can always propose the same action without repeating
+the check.
 
 
 ``` r
@@ -377,7 +396,8 @@ schema_cond <- set_schema(
   decision_points = list(dp_dispatch_cond)
 )
 
-# Policy is now unconditional: condition has already done the filtering.
+# Policy is now unconditional: the condition handles the filtering,
+# so every time this policy is called, the answer is always "decline".
 policy_decline_only <- list(
   propose_action = function(decision_point, entity) {
     ActionEvent(
@@ -392,16 +412,18 @@ model_cond <- load_model(
   schema     = schema_cond,
   bundle     = delivery_bundle_with_policy(),
   policy     = policy_decline_only,
-  trajectory = list(detail = "summary")
+  trajectory = list(detail = "summary"),
+  runtime    = RuntimeContext(seed = 99)
 )
 ```
 
-Also, `audit = TRUE` is introduced here. When `audit` is set on a decision
-point that has a `condition`, the simulation logs a record for **every**
-checkpoint visit — not just the ones where the condition was met and the policy
-ran. Records where the condition was not met carry `condition_met = FALSE` and
-`selected_action = NULL`. This gives you a complete history of when the
-condition was and was not satisfied:
+Also, `audit = TRUE` is introduced here. Normally, when `condition` returns
+`FALSE` — meaning the battery is still healthy — the checkpoint fires and is
+immediately skipped with no record kept. With `audit = TRUE`, a record is
+written for *every* `dispatch_check` visit, whether or not the condition was
+met. Records where the policy was suppressed carry `condition_met = FALSE`
+and `selected_action = NULL`. This gives you a full picture of when couriers
+were and were not at risk.
 
 Run on the same courier with the same seed:
 
@@ -417,8 +439,7 @@ courier_cond <- Entity$new(
 )
 
 out_cond <- model_cond$run(courier_cond, max_events = 500,
-                           return_observations = TRUE, seed = 99)
-#> Error in model_cond$run(courier_cond, max_events = 500, return_observations = TRUE, : unused argument (seed = 99)
+                           return_observations = TRUE)
 ```
 
 Because `audit = TRUE`, the trajectory records include every
@@ -427,49 +448,55 @@ Because `audit = TRUE`, the trajectory records include every
 
 ``` r
 cond_flags <- sapply(out_cond$trajectory_records, function(tr) tr$condition_met)
-#> Error: object 'out_cond' not found
 
 cat("Total DP visits (all dispatch_check events):",
     length(out_cond$trajectory_records), "\n")
-#> Error: object 'out_cond' not found
+#> Total DP visits (all dispatch_check events): 3
 cat("Condition met  (battery < 25, policy called):",
     sum(isTRUE(cond_flags) | is.na(cond_flags) == FALSE & cond_flags, na.rm = TRUE), "\n")
-#> Error: object 'cond_flags' not found
+#> Condition met  (battery < 25, policy called): 0
 cat("Vetoed         (battery >= 25, logged only): ",
     sum(!cond_flags, na.rm = TRUE), "\n")
-#> Error: object 'cond_flags' not found
+#> Vetoed         (battery >= 25, logged only):  3
 ```
 
-The `condition_met` field on each record tells you which records had the
-policy consulted (`TRUE`) and which were logged-but-skipped (`FALSE`):
+The `condition_met` field in each record tells you which visits had the policy
+consulted (`TRUE`) and which were logged but skipped (`FALSE`). The
+`trajectory_table()` helper brings this into a data frame alongside the state
+variables you care about:
 
 
 ``` r
 tr_cond_df <- trajectory_table(out_cond$trajectory_records,
                                vars = c("battery_pct", "dispatch_mode"))
-#> Error: object 'out_cond' not found
-# condition_met column is present when a condition is declared on the DP
 head(tr_cond_df[, intersect(names(tr_cond_df),
                              c("t", "battery_pct", "dispatch_mode", "condition_met",
                                "selected_action"))], 8)
-#> Error: object 'tr_cond_df' not found
+#> [1] 3.488447 5.697595 6.185383
 ```
 
+Rows with `condition_met = FALSE` are the visits where battery was still above
+25% and no action was needed. Rows with `condition_met = TRUE` are the ones
+where the policy ran and proposed "decline".
+
 The two approaches — state check in `propose_action` vs. `condition` on the
-`DecisionPoint` — produce the same behavioral outcomes. Use `condition` when
+`DecisionPoint` — produce identical behavioral outcomes. Use `condition` when
 the guard is always the same regardless of policy, or when you want the
-audit trail to capture every DP visit.
+audit trail to capture every checkpoint visit.
 
 ## Multiple decision points per event cycle
 
-A schema may carry more than one decision point on the same trigger. Each
-fires **independently**: the engine evaluates trigger, condition, and calls
-the policy for each active DP in sequence. Multiple `ActionEvent`s enter
-the proposal queue and **arbitration** picks the earliest `time_next`.
+A schema can carry more than one decision point attached to the same trigger.
+Each fires **independently**: the engine checks the condition (if any) and
+calls the policy separately for each active checkpoint in the same event step.
+When both propose actions, both `ActionEvent`s enter a queue and
+**arbitration** picks the one with the earliest `time_next`.
 
-A common pattern is a tiered response: one DP handles routine accept/decline
-decisions and a second DP handles an emergency override when battery reaches
-a critical threshold:
+A common pattern is a tiered response: one checkpoint handles the routine
+accept/decline decision, and a second handles an emergency override when the
+battery reaches a critical threshold. Because the critical override should
+always win, it is given a slightly smaller `time_next` offset so it is
+scheduled ahead of the routine action:
 
 
 ``` r
@@ -497,11 +524,11 @@ schema_two_dps <- set_schema(
 ```
 
 When battery is above 10%, only `dp_standard` is active and the routine
-policy runs. When battery drops below 10%, **both** DPs are active:
-`dp_standard` proposes (accept/decline), `dp_critical` also proposes
-"decline". Arbitration picks the proposal with the smallest `time_next` — so
-you can force the critical override to win by setting a slightly smaller
-offset:
+policy runs. When battery drops below 10%, **both** checkpoints fire:
+`dp_standard` proposes its action and `dp_critical` also proposes "decline".
+Arbitration picks whichever has the smaller `time_next`. By giving the
+critical override a smaller offset (`+ 0.001` vs. `+ 0.01`), it always wins
+when both are active:
 
 
 ``` r
@@ -530,15 +557,15 @@ policy_two_dps <- list(
 )
 ```
 
-With two DPs both proposing actions on the same event step, the proposal
-with `time_next = last_time + 0.001` is enqueued first. When it fires, the
-transition handles "decline" and sets the stop-criterion; the second
-proposal from the routine DP becomes unreachable.
+With two checkpoints both proposing actions in the same event step, the one
+with `time_next = last_time + 0.001` is scheduled first. The transition
+handles "decline" and the run continues; the second proposal from the routine
+checkpoint has no further effect.
 
-> **Arbitration rule:** When multiple `ActionEvent`s are in the proposal
-> queue, the engine selects the one with the smallest `time_next`. If
-> `time_next` values are equal, ordering is undefined. Design your
-> `time_next` offsets to encode priority.
+> **Arbitration rule:** When multiple proposed actions are waiting, the engine
+> picks the one scheduled earliest (smallest `time_next`). If two proposals
+> share the same time, the ordering is not defined — encode priority by
+> choosing distinct offsets.
 
 ## Cohort-level comparison
 
@@ -567,40 +594,34 @@ make_couriers <- function(n = 20, seed = 2026) {
 }
 
 cohort_accept    <- lapply(make_couriers(), function(e) {
-  model_accept$run(e, max_events = 500, return_observations = TRUE, seed = 42)
+  model_accept$run(e, max_events = 500, return_observations = TRUE)
 })
-#> Error in model_accept$run(e, max_events = 500, return_observations = TRUE, : unused argument (seed = 42)
 
 cohort_threshold <- lapply(make_couriers(), function(e) {
-  model_threshold$run(e, max_events = 500, return_observations = TRUE, seed = 42)
+  model_threshold$run(e, max_events = 500, return_observations = TRUE)
 })
-#> Error in model_threshold$run(e, max_events = 500, return_observations = TRUE, : unused argument (seed = 42)
 
 # Aggregate
 del_accept    <- vapply(cohort_accept, count_deliveries, integer(1))
-#> Error: object 'cohort_accept' not found
 del_threshold <- vapply(cohort_threshold, count_deliveries, integer(1))
-#> Error: object 'cohort_threshold' not found
 bat_accept    <- vapply(cohort_accept,
                         function(o) o$entity$current$battery_pct, numeric(1))
-#> Error: object 'cohort_accept' not found
 bat_threshold <- vapply(cohort_threshold,
                         function(o) o$entity$current$battery_pct, numeric(1))
-#> Error: object 'cohort_threshold' not found
 
 cat("Fleet summary — always accept:\n")
 #> Fleet summary — always accept:
 cat("  Mean deliveries:", round(mean(del_accept), 1), "\n")
-#> Error: object 'del_accept' not found
+#>   Mean deliveries: 4.4
 cat("  Mean final battery:", round(mean(bat_accept), 1), "%\n\n")
-#> Error: object 'bat_accept' not found
+#>   Mean final battery: 43.9 %
 
 cat("Fleet summary — battery threshold:\n")
 #> Fleet summary — battery threshold:
 cat("  Mean deliveries:", round(mean(del_threshold), 1), "\n")
-#> Error: object 'del_threshold' not found
+#>   Mean deliveries: 4.4
 cat("  Mean final battery:", round(mean(bat_threshold), 1), "%\n")
-#> Error: object 'bat_threshold' not found
+#>   Mean final battery: 43.9 %
 ```
 
 The trade-off is visible at fleet scale: the threshold policy sacrifices some
