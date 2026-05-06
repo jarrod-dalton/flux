@@ -13,9 +13,9 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 suppressPackageStartupMessages(library(fluxCore))
 ```
 
-In Tutorial 03, every agent followed the same mechanistic process: dispatches
-arrived, deliveries completed, batteries drained — all without anyone making
-choices. Real systems involve **decisions**: a dispatcher choosing whether to
+In [Tutorial 02](02_cohort_forecast.md), every agent followed the same
+mechanistic process: dispatches arrived, deliveries completed, batteries
+drained — all without anyone making choices. Real systems involve **decisions**: a dispatcher choosing whether to
 accept or decline an assignment, a routing algorithm picking surge vs normal
 mode, a fleet manager pulling a low-battery vehicle off the road.
 
@@ -60,8 +60,21 @@ dp_dispatch <- DecisionPoint(
 ```
 
 The fields:
-- **`trigger`**: the event type that fires this decision point. The engine
-  invokes the policy *after* transition has already been applied for that event.
+- **`trigger`**: what causes this decision point to fire. Accepts either a
+  character vector of event type names **or a predicate function**
+  `function(event)` that returns `TRUE` when the decision should be
+  consulted. The predicate form lets you trigger on state conditions rather
+  than event names — for example, fire whenever battery is critically low
+  regardless of which event just occurred:
+
+  ```r
+  trigger = function(event) {
+    isTRUE(as.numeric(event$state_after[["battery_pct"]]) < 20)
+  }
+  ```
+
+  The engine invokes the policy *after* the triggering event's transition
+  has been applied, so `entity$current` already reflects the new state.
 - **`allowed_actions`**: what the policy is permitted to propose. Actions
   outside this set are rejected.
 - **`label`**: human-readable documentation.
@@ -75,6 +88,10 @@ schema_with_dp <- list(
   decision_points = list(dp_dispatch)
 )
 ```
+
+> **Note:** `set_schema()` currently manages state variables only and does not
+> accept a `decision_points` argument. The list-construction form above is the
+> intended pattern until `set_schema()` is extended to support decision points.
 
 ## Writing policies
 
@@ -96,7 +113,7 @@ This is equivalent to having no policy at all (the baseline behavior).
 ```{r}
 policy_always_accept <- list(
 
-  propose_action = function(decision_point, entity, sim_ctx, param_ctx) {
+  propose_action = function(decision_point, entity) {
     ActionEvent(
       action_type       = "accept",
       time_next         = entity$last_time + 0.01,
@@ -114,7 +131,7 @@ risk stranding mid-delivery.
 
 ```{r}
 policy_battery_threshold <- list(
-  propose_action = function(decision_point, entity, sim_ctx, param_ctx) {
+  propose_action = function(decision_point, entity) {
     battery <- as.numeric(entity$current$battery_pct)
 
     action <- if (!is.null(battery) && battery < 25) "decline" else "accept"
@@ -198,7 +215,7 @@ stochastic draws — but different policies yield different outcomes.
 
 ```{r}
 agent <- Entity$new(
-  id          = "driver_A",
+  id          = "courier_A",
   init        = list(
     battery_pct   = 80,
     route_zone    = "urban",
@@ -206,7 +223,7 @@ agent <- Entity$new(
     dispatch_mode = "idle"
   ),
   schema      = delivery_schema(),
-  entity_type = "delivery_agent",
+  entity_type = "courier",
   time0       = 0
 )
 
@@ -216,7 +233,7 @@ out_accept <- model_accept$run(agent, max_events = 500,
 
 # Fresh entity (same starting state)
 agent2 <- Entity$new(
-  id          = "driver_A",
+  id          = "courier_A",
   init        = list(
     battery_pct   = 80,
     route_zone    = "urban",
@@ -224,7 +241,7 @@ agent2 <- Entity$new(
     dispatch_mode = "idle"
   ),
   schema      = delivery_schema(),
-  entity_type = "delivery_agent",
+  entity_type = "courier",
   time0       = 0
 )
 
@@ -300,7 +317,7 @@ make_agents <- function(n = 20, seed = 2026) {
   set.seed(seed)
   lapply(seq_len(n), function(i) {
     Entity$new(
-      id   = paste0("driver_", sprintf("%02d", i)),
+      id   = paste0("courier_", sprintf("%02d", i)),
       init = list(
         battery_pct   = runif(1, 50, 100),
         route_zone    = sample(c("urban", "suburban", "rural"), 1,
@@ -309,7 +326,7 @@ make_agents <- function(n = 20, seed = 2026) {
         dispatch_mode = "idle"
       ),
       schema      = delivery_schema(),
-      entity_type = "delivery_agent",
+      entity_type = "courier",
       time0       = 0
     )
   })
@@ -364,7 +381,7 @@ the rest of the flux ecosystem builds on:
 | Concept | What you learned |
 |---------|-----------------|
 | `DecisionPoint()` | Declares where in the event timeline a policy is consulted |
-| Policy function | `propose_action(dp, entity, sim_ctx, param_ctx)` → `ActionEvent` or NULL |
+| Policy function | `propose_action(dp, entity)` → `ActionEvent` or NULL; add `sim_ctx` / `param_ctx` to the signature only when needed |
 | `ActionEvent()` | The proposed intervention — enters the timeline like any other event |
 | `load_model()` | Validates schema + bundle + policy + trajectory config together |
 | Trajectory records | Per-decision audit trail: observation, action, state_before/after |
