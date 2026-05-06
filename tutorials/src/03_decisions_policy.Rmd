@@ -106,14 +106,13 @@ dp_dispatch <- DecisionPoint(
   allowed_actions = c("accept", "decline"),
   action_handlers = list(
     accept = function(entity, event) {
-      # Accepting is a no-op: the base transition already assigned route,
-      # payload, and charged battery at dispatch_check.
-      NULL
+      # Courier commits to the delivery: pay the battery cost now.
+      battery_now <- as.numeric(entity$current$battery_pct)
+      if (!is.finite(battery_now)) battery_now <- 100
+      list(battery_pct = max(0, battery_now - rexp(1, 1/2.5)))
     },
     decline = function(entity, event) {
-      # Declining reverses the dispatch: drop payload, refund battery,
-      # and return to idle.
-      battery_before_dispatch <- as.numeric(entity$current$battery_pct)
+      # Courier passes: undo the route/payload assignment, no battery cost.
       list(dispatch_mode = "idle", payload_kg = 0)
     }
   )
@@ -191,12 +190,45 @@ policy_battery_threshold <- function(decision_point, entity) {
 }
 ```
 
-## Assembling with `load_model()`
+## Tweaking the base model for policy control
 
-With `action_handlers` on the decision point, we don't need a custom
-transition function or a bundle wrapper. The base `delivery_bundle()` handles
-all natural events (dispatch, delivery, end_shift), and the engine routes
-action events to the handlers automatically.
+In the base model (`delivery_bundle()`), `dispatch_check` assigns a route,
+adds payload, **and** deducts battery — all in one step. That made sense when
+every dispatch was automatically accepted, but now that a policy can decline,
+we need to separate "an offer arrived" from "the courier committed." Otherwise
+the battery cost is paid regardless of the policy's decision, and the
+threshold policy has no real effect.
+
+The fix is a thin wrapper that removes `battery_pct` from the dispatch_check
+transition. Battery cost is moved into the `accept` action handler above —
+so it is only paid when the policy actually commits the courier to the
+delivery. The `decline` handler simply resets mode and payload; no state
+needs to be "refunded" because battery was never charged.
+
+```{r}
+delivery_bundle_for_policy <- function(params = list()) {
+  base <- delivery_bundle(params)
+  base_transition <- base$transition
+
+  base$transition <- function(entity, event, param_ctx = NULL) {
+    result <- base_transition(entity, event, param_ctx)
+    # Strip battery cost from dispatch_check — the policy decides whether to pay it.
+    if (identical(event$event_type, "dispatch_check")) {
+      result$battery_pct <- NULL
+    }
+    result
+  }
+
+  base
+}
+```
+
+This leaves the shared `urban_delivery.R` file untouched (other tutorials
+still use the original behavior where every dispatch drains battery), and
+makes the policy's accept/decline choice the sole determinant of dispatch
+battery cost in this tutorial.
+
+## Assembling with `load_model()`
 
 `load_model()` validates that the schema, bundle, policy, and trajectory
 configuration are mutually consistent before any run begins.
@@ -209,7 +241,7 @@ difference in outcome is caused by the policy, not by random chance.
 ```{r}
 model_accept <- load_model(
   schema     = schema_with_dp,
-  bundle     = delivery_bundle(),
+  bundle     = delivery_bundle_for_policy(),
   policy     = policy_always_accept,
   trajectory = list(detail = "summary"),
   runtime    = RuntimeContext(seed = 500)
@@ -217,7 +249,7 @@ model_accept <- load_model(
 
 model_threshold <- load_model(
   schema     = schema_with_dp,
-  bundle     = delivery_bundle(),
+  bundle     = delivery_bundle_for_policy(),
   policy     = policy_battery_threshold,
   trajectory = list(detail = "summary"),
   runtime    = RuntimeContext(seed = 500)
@@ -305,11 +337,11 @@ data.frame(
 ```
 
 `state_before` and `state_after` bracket the *trigger event* (`dispatch_check`).
-The base transition assigns a route, adds payload, and charges a battery cost
-all in one step — so you will typically see battery drop between `state_before`
-and `state_after`. The `accept` action handler is a no-op (everything was
-already handled by the trigger), while `decline` reverses the assignment by
-resetting mode to idle and dropping payload.
+Because we stripped battery cost from that transition, `battery_pct` will be
+the same in both snapshots — the battery change happens later, when the
+`accept` action handler fires. What *does* change between before and after is
+`dispatch_mode` (`idle` → `assigned`) and `payload_kg` (0 → new payload),
+since those are still set by the trigger.
 
 `trajectory_table()` collects all records into a data frame, with one row per
 decision and columns for time, state variables, and the action taken. Look for
@@ -371,7 +403,7 @@ policy_decline_only <- function(decision_point, entity) {
 
 model_cond <- load_model(
   schema     = schema_cond,
-  bundle     = delivery_bundle(),
+  bundle     = delivery_bundle_for_policy(),
   policy     = policy_decline_only,
   trajectory = list(detail = "summary"),
   runtime    = RuntimeContext(seed = 99)
@@ -458,7 +490,11 @@ dp_standard <- DecisionPoint(
   trigger         = "dispatch_check",
   allowed_actions = c("accept", "decline"),
   action_handlers = list(
-    accept  = function(entity, event) NULL,
+    accept = function(entity, event) {
+      battery_now <- as.numeric(entity$current$battery_pct)
+      if (!is.finite(battery_now)) battery_now <- 100
+      list(battery_pct = max(0, battery_now - rexp(1, 1/2.5)))
+    },
     decline = function(entity, event) list(dispatch_mode = "idle", payload_kg = 0)
   ),
   label           = "Routine accept/decline decision"
@@ -546,13 +582,13 @@ n_reps <- 500
 
 dist_results <- lapply(seq_len(n_reps), function(s) {
   m_a <- load_model(
-    schema  = schema_with_dp, bundle = delivery_bundle(),
+    schema  = schema_with_dp, bundle = delivery_bundle_for_policy(),
     policy  = policy_always_accept, trajectory = list(detail = "none"),
     runtime = RuntimeContext(seed = s)
   )
 
   m_t <- load_model(
-    schema  = schema_with_dp, bundle = delivery_bundle(),
+    schema  = schema_with_dp, bundle = delivery_bundle_for_policy(),
     policy  = policy_battery_threshold, trajectory = list(detail = "none"),
     runtime = RuntimeContext(seed = s)
   )
@@ -601,7 +637,7 @@ that would have been needed for dispatches later. The distribution of
 counterfactual outcomes is the right object to reason about, not a single
 point estimate.
 
-```{r, fig.width=7, fig.height=4}
+```{r, fig.width=10, fig.height=3}
 # Reshape to long form for plotting
 plot_df <- results |>
   select(replicate, del_accept, del_threshold) |>
