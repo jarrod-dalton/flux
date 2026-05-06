@@ -21,14 +21,20 @@ mode, a fleet manager pulling a low-battery vehicle off the road.
 
 This tutorial introduces **decision points** and **policies** — the mechanism
 by which choices are injected into the simulation timeline. A **policy** is a
-set of decision rules: given a courier's current state at a specific moment in
-the simulation, it proposes an action such as “accept this dispatch” or
-“decline”. By the end you will be able to:
+function that looks at the courier's current state and proposes an action: accept
+the dispatch (take the payload, spend battery to deliver it) or decline (stay
+idle, conserve battery for later). Accepting means more deliveries completed
+but faster battery depletion; declining preserves range at the cost of missed
+work. The question we will answer: *does a simple battery-conservation policy
+improve the delivery-vs-battery trade-off compared to always accepting?*
+
+By the end you will be able to:
 
 - declare a decision point on the delivery schema,
 - write a policy function that proposes actions,
 - compare outcomes under two different policies with identical seeds,
-- inspect trajectory records to see exactly why each decision was made.
+- inspect trajectory records to see exactly why each decision was made,
+- view the distribution of counterfactual outcomes across many runs.
 
 ## Setup
 
@@ -40,10 +46,17 @@ set.seed(2026)
 
 ## The decision: accept or decline a dispatch
 
-When a `dispatch_check` event fires, the courier currently accepts every
-assignment unconditionally. But what if a fleet management system could
-**decline** an assignment — for example, when battery is too low to safely
-complete the delivery?
+Recall the model from Tutorial 01. The simulation runs in discrete steps:
+each step, competing event streams (dispatch arrivals, delivery completions,
+shift end) each propose a next-event time; the engine picks the soonest one,
+advances the clock, and calls `transition()` to update state variables.
+Among those events is `dispatch_check` — the moment a new delivery assignment
+arrives and the courier is offered work.
+
+In the base model, `dispatch_check` always results in the courier accepting:
+the transition assigns a route, adds payload, and deducts battery. But what if
+a fleet management system could **decline** an assignment — for example, when
+battery is too low to safely complete the delivery?
 
 This is a natural decision point. Let's formalize it.
 
@@ -69,49 +82,25 @@ dp_dispatch <- DecisionPoint(
 ```
 
 The fields:
-- **`trigger`**: which event(s) cause this decision point to fire. The
-  simplest form is a character string (or vector) matching one or more event
-  type names. You can also supply a function `function(event)` that inspects
-  the event and returns `TRUE` or `FALSE` — useful when you want to fire only
-  for a subset of events of the same type (e.g., only expedited deliveries).
-  The function receives the event as it was *before* the transition runs, so
-  it sees fields like `event_type`, `time_next`, and any `metadata` attached
-  by the event generator. To check courier state *after* the transition,
-  use `condition` instead.
+- **`trigger`**: which event(s) cause this decision point to fire. Here we use
+  the string `"dispatch_check"`, meaning the checkpoint activates every time
+  a dispatch arrives. You can also supply a vector of event names, or a
+  function `function(event)` that inspects event metadata and returns
+  `TRUE`/`FALSE` for selective firing.
 
-  ```r
-  # Fire only when the event was flagged as expedited
-  trigger = function(event) {
-    event$event_type == "delivery_completed" &&
-      isTRUE(event$metadata$expedited)
-  }
-  ```
-
-- **`condition`**: an optional function `function(entity)` that is checked
-  *after* the transition runs and the courier's state has been updated. If it
-  returns `FALSE`, the policy is not called for that event — the simulation
-  continues without intervention. Use this to restrict the decision point to
-  situations where the courier's current state warrants action:
-
-  ```r
-  # Only consult the policy when battery is below 25 % after the dispatch
-  condition = function(entity) entity$current$battery_pct < 25
-  ```
-
-  `trigger` and `condition` serve different purposes: `trigger` selects
-  *which events* activate the checkpoint; `condition` checks *whether the
-  current state* warrants calling the policy.
+- **`condition`**: an optional function `function(entity)` that is evaluated
+  *after* the transition runs. Why after? Because the fleet manager needs
+  up-to-date state to make a decision — the courier's `battery_pct` may have
+  changed during the transition. If `condition` returns `FALSE`, the policy
+  is skipped for this event cycle. We don't use a condition yet (every
+  `dispatch_check` should prompt a decision), but we will introduce it later.
 
 - **`audit`**: logical (default `FALSE`). When `TRUE`, the simulation logs a
   `TrajectoryRecord` even for cycles where `condition` suppressed the policy
-  call. The record is flagged with `condition_met = FALSE` and
-  `selected_action = NULL`, giving you a complete history of every checkpoint
-  visit regardless of whether the policy ran.
+  call — useful for post-hoc analysis of "what *could* have happened."
 
-- **`allowed_actions`**: what the policy is permitted to propose. Actions
-  outside this set are rejected.
-
-- **`label`**: human-readable documentation.
+- **`allowed_actions`**: the set of actions the policy is permitted to
+  propose. Anything outside this set is rejected by the engine.
 
 Now assemble a full schema object (variables + time_spec + decision points):
 
@@ -382,20 +371,22 @@ tr_df <- trajectory_table(out_threshold$trajectory_records,
 head(tr_df, 10)
 ```
 
-## Separating the guard from the action: `condition`
+## Using `condition` to restrict when the policy runs
 
-In `policy_battery_threshold` above, the state check (`battery < 60`) lives
-inside the function. The policy receives every `dispatch_check` event and
-decides what to do. That works fine for a single-policy model, but it blurs
-two distinct concerns:
+In `policy_battery_threshold` above, the battery check lives inside the
+policy function itself. That’s fine for simple cases, but it conflates two
+concerns: *when* to intervene and *what* to do. If you always want to decline
+when battery is critically low — regardless of which policy is plugged in —
+you can move the guard out of the policy and onto the decision point.
 
-- *When* should this decision point be activated? (the guard)
-- *What* should happen when it fires? (the action)
+The `condition` parameter accepts a function `function(entity)` that is
+evaluated after the transition (so it sees current state). If it returns
+`FALSE`, the policy is never called for that cycle.
 
-The `condition` parameter on `DecisionPoint()` separates these. You attach the
-guard directly to the checkpoint. The policy only runs when the condition is
-already satisfied, so it can always propose the same action without repeating
-the check.
+Here we set a stricter threshold (25%) as a hard rule on the decision point.
+The policy itself becomes trivial — it always proposes "decline" because it
+only runs when the condition has already determined that intervention is
+warranted:
 
 ```{r}
 dp_dispatch_cond <- DecisionPoint(
@@ -486,7 +477,7 @@ Rows with `condition_met = FALSE` are the visits where battery was still above
 25% and no action was needed. Rows with `condition_met = TRUE` are the ones
 where the policy ran and proposed "decline".
 
-The two approaches — state check in `propose_action` vs. `condition` on the
+The two approaches — state check in the policy function vs. `condition` on the
 `DecisionPoint` — produce identical behavioral outcomes. Use `condition` when
 the guard is always the same regardless of policy, or when you want the
 audit trail to capture every checkpoint visit.
@@ -681,7 +672,7 @@ the rest of the flux ecosystem builds on:
 | `trigger` | Pre-transition gate: char event name(s) or `function(event)` on event-level fields |
 | `condition` | Post-transition guard: `function(entity)` on updated state; vetoed cycles skip the policy call |
 | `audit = TRUE` | Emit `TrajectoryRecord` even when `condition` vetoed; `condition_met = FALSE` flags those records |
-| Policy function | `propose_action(dp, entity)` → `ActionEvent` or NULL; add `sim_ctx` / `param_ctx` to the signature only when needed |
+| Policy function | `function(decision_point, entity)` → `ActionEvent` or NULL; add `sim_ctx` / `param_ctx` to the signature only when needed |
 | `ActionEvent()` | The proposed intervention — enters the timeline like any other event |
 | `load_model()` | Validates schema + bundle + policy + trajectory config together |
 | Trajectory records | Per-decision audit trail: `observation`, `action`, `state_before/after`, `condition_met` |
