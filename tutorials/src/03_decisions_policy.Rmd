@@ -13,7 +13,7 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 suppressPackageStartupMessages(library(fluxCore))
 ```
 
-In [Tutorial 02](02_cohort_forecast.md), every agent followed the same
+In [Tutorial 02](02_cohort_forecast.md), every courier followed the same
 mechanistic process: dispatches arrived, deliveries completed, batteries
 drained — all without anyone making choices. Real systems involve **decisions**: a dispatcher choosing whether to
 accept or decline an assignment, a routing algorithm picking surge vs normal
@@ -37,18 +37,24 @@ set.seed(2026)
 
 ## The decision: accept or decline a dispatch
 
-When a `dispatch_check` event fires, the agent currently accepts every
-assignment unconditionally. But what if the agent (or a fleet management system)
-could **decline** an assignment — for example, when battery is too low to
-safely complete the delivery?
+When a `dispatch_check` event fires, the courier currently accepts every
+assignment unconditionally. But what if a fleet management system could
+**decline** an assignment — for example, when battery is too low to safely
+complete the delivery?
 
 This is a natural decision point. Let's formalize it.
 
 ## Declaring a decision point
 
+A **decision point** is a named checkpoint in the event timeline where the
+simulation pauses to ask: *should something intervene here?* When a decision
+point fires, the engine calls your policy function and gives it a chance to
+propose an action — for example, "decline this dispatch" or "switch to surge
+mode". If no policy is attached, the simulation proceeds as if the checkpoint
+were not there.
+
 Decision points are declared on the schema, not buried in transition logic.
-This makes the policy interface explicit and auditable. A schema without
-`$decision_points` runs as a pure generative model — policies are opt-in.
+This keeps the interface explicit and auditable.
 
 ```{r}
 dp_dispatch <- DecisionPoint(
@@ -60,46 +66,44 @@ dp_dispatch <- DecisionPoint(
 ```
 
 The fields:
-- **`trigger`**: what causes this decision point to open a window. Accepts
-  either a character vector of event type names **or a predicate function**
-  `function(event)` that returns `TRUE`. The predicate is evaluated
-  **pre-transition** and receives the raw event object — fields:
-  `event_type`, `time_next`, `process_id`, and optional `metadata`. Use it
-  to filter on event-level information, for example to fire only on
-  expedited deliveries:
+- **`trigger`**: which event(s) cause this decision point to fire. The
+  simplest form is a character string (or vector) matching one or more event
+  type names. You can also supply a function `function(event)` that inspects
+  the event and returns `TRUE` or `FALSE` — useful when you want to fire only
+  for a subset of events of the same type (e.g., only expedited deliveries).
+  The function receives the event as it was *before* the transition runs, so
+  it sees fields like `event_type`, `time_next`, and any `metadata` attached
+  by the event generator. To check courier state *after* the transition,
+  use `condition` instead.
 
   ```r
+  # Fire only when the event was flagged as expedited
   trigger = function(event) {
     event$event_type == "delivery_completed" &&
       isTRUE(event$metadata$expedited)
   }
   ```
 
-  To gate on **post-transition entity state** (e.g., battery level after a
-  delivery drains), use `condition` instead.
-
-- **`condition`**: optional function `function(entity)` evaluated
-  **post-transition** on the updated entity. When it returns `FALSE`, the
-  policy is not consulted for this event cycle. This keeps
-  *when-to-open-the-window* (`trigger`) separate from
-  *whether-to-act-given-state* (`condition`):
+- **`condition`**: an optional function `function(entity)` that is checked
+  *after* the transition runs and the courier's state has been updated. If it
+  returns `FALSE`, the policy is not called for that event — the simulation
+  continues without intervention. Use this to restrict the decision point to
+  situations where the courier's current state warrants action:
 
   ```r
-  # Only call the policy when battery drops below 25 % *after* the
-  # dispatch_check transition has been applied.
-  dp_low_battery <- DecisionPoint(
-    id              = "low_battery_override",
-    trigger         = "dispatch_check",
-    condition       = function(entity) entity$current$battery_pct < 25,
-    allowed_actions = c("decline"),
-    label           = "Decline dispatch when battery is critically low"
-  )
+  # Only consult the policy when battery is below 25 % after the dispatch
+  condition = function(entity) entity$current$battery_pct < 25
   ```
 
-- **`audit`**: logical (default `FALSE`). When `TRUE`, a `TrajectoryRecord`
-  is emitted even for cycles where `condition` vetoed the policy call. The
-  record carries `condition_met = FALSE` and `selected_action = NULL`,
-  giving you a complete history of every DP visit regardless of outcome.
+  `trigger` and `condition` serve different purposes: `trigger` selects
+  *which events* activate the checkpoint; `condition` checks *whether the
+  current state* warrants calling the policy.
+
+- **`audit`**: logical (default `FALSE`). When `TRUE`, the simulation logs a
+  `TrajectoryRecord` even for cycles where `condition` suppressed the policy
+  call. The record is flagged with `condition_met = FALSE` and
+  `selected_action = NULL`, giving you a complete history of every checkpoint
+  visit regardless of whether the policy ran.
 
 - **`allowed_actions`**: what the policy is permitted to propose. Actions
   outside this set are rejected.
@@ -128,14 +132,14 @@ A policy is a list with a `propose_action` method:
 propose_action(decision_point, entity, sim_ctx, param_ctx) -> ActionEvent | NULL
 ```
 
-It inspects the current entity state (which already reflects the triggering
-event's transition) and returns an `ActionEvent` — or `NULL` for "no
-intervention."
+It receives the decision point object and the current courier state (already
+updated by the triggering event's transition) and returns an `ActionEvent`, or
+`NULL` for "no intervention."
 
 ### Policy A: always accept
 
 The simplest possible policy — accept every dispatch regardless of state.
-This is equivalent to having no policy at all (the baseline behavior).
+This is equivalent to having no policy at all, and serves as a baseline.
 
 ```{r}
 policy_always_accept <- list(
@@ -152,8 +156,8 @@ policy_always_accept <- list(
 
 ### Policy B: battery threshold
 
-Decline if battery has dropped below 25%. The idea: a low-battery agent
-should stop taking new assignments and coast to shift end rather than
+Decline if battery has dropped below 25%. The idea: a courier running low on
+battery should stop taking new assignments and coast to shift end rather than
 risk stranding mid-delivery.
 
 ```{r}
@@ -237,11 +241,11 @@ model_threshold <- load_model(
 
 ## Running both policies from the same seed
 
-The power of the decision-point architecture: same entity, same seed, same
+The power of the decision-point architecture: same courier, same seed, same
 stochastic draws — but different policies yield different outcomes.
 
 ```{r}
-agent <- Entity$new(
+courier <- Entity$new(
   id          = "courier_A",
   init        = list(
     battery_pct   = 80,
@@ -255,11 +259,11 @@ agent <- Entity$new(
 )
 
 # Run under always-accept
-out_accept <- model_accept$run(agent, max_events = 500,
+out_accept <- model_accept$run(courier, max_events = 500,
                                return_observations = TRUE, seed = 99)
 
-# Fresh entity (same starting state)
-agent2 <- Entity$new(
+# Fresh courier (same starting state)
+courier2 <- Entity$new(
   id          = "courier_A",
   init        = list(
     battery_pct   = 80,
@@ -273,7 +277,7 @@ agent2 <- Entity$new(
 )
 
 # Run under battery-threshold
-out_threshold <- model_threshold$run(agent2, max_events = 500,
+out_threshold <- model_threshold$run(courier2, max_events = 500,
                                      return_observations = TRUE, seed = 99)
 ```
 
@@ -294,9 +298,9 @@ cat("  Deliveries completed:", count_deliveries(out_threshold), "\n")
 cat("  Final battery:       ", round(out_threshold$entity$current$battery_pct, 1), "%\n")
 ```
 
-The always-accept agent takes every dispatch and drains the battery more
+The always-accept courier takes every dispatch and drains the battery more
 aggressively — potentially completing more deliveries but at higher risk of
-hitting critical battery levels. The threshold agent conserves energy by
+hitting critical battery levels. The threshold courier conserves energy by
 declining late-shift dispatches when battery is low.
 
 ## Inspecting trajectory records
@@ -331,8 +335,8 @@ head(tr_df, 10)
 ```
 
 Look for the moment the policy starts declining — that's where the battery
-crosses the threshold and the agent switches from "accept everything" to
-"coast to end of shift."
+crosses the threshold and the courier switches from accepting everything to
+coasting to end of shift.
 
 ## Separating the guard from the action: `condition`
 
@@ -381,10 +385,10 @@ model_cond <- load_model(
 )
 ```
 
-Run on the same agent with the same seed:
+Run on the same courier with the same seed:
 
 ```{r}
-agent_cond <- Entity$new(
+courier_cond <- Entity$new(
   id          = "courier_A",
   init        = list(battery_pct=80, route_zone="urban",
                      payload_kg=0, dispatch_mode="idle"),
@@ -393,7 +397,7 @@ agent_cond <- Entity$new(
   time0       = 0
 )
 
-out_cond <- model_cond$run(agent_cond, max_events = 500,
+out_cond <- model_cond$run(courier_cond, max_events = 500,
                            return_observations = TRUE, seed = 99)
 ```
 
@@ -508,11 +512,11 @@ proposal from the routine DP becomes unreachable.
 
 ## Cohort-level comparison
 
-Let's scale this up. Run a 20-agent cohort under both policies and compare
+Let's scale this up. Run a 20-courier cohort under both policies and compare
 aggregate outcomes.
 
 ```{r}
-make_agents <- function(n = 20, seed = 2026) {
+make_couriers <- function(n = 20, seed = 2026) {
   set.seed(seed)
   lapply(seq_len(n), function(i) {
     Entity$new(
@@ -531,11 +535,11 @@ make_agents <- function(n = 20, seed = 2026) {
   })
 }
 
-cohort_accept    <- lapply(make_agents(), function(e) {
+cohort_accept    <- lapply(make_couriers(), function(e) {
   model_accept$run(e, max_events = 500, return_observations = TRUE, seed = 42)
 })
 
-cohort_threshold <- lapply(make_agents(), function(e) {
+cohort_threshold <- lapply(make_couriers(), function(e) {
   model_threshold$run(e, max_events = 500, return_observations = TRUE, seed = 42)
 })
 
@@ -566,7 +570,7 @@ is constrained.
 `TrajectoryRecord` is not just an audit log. It is the structured surface that
 the rest of the flux ecosystem builds on:
 
-- **Policy comparison**: run the same entity under two policies with the same
+- **Policy comparison**: run the same courier under two policies with the same
   seed; diff the trajectory_records to see where and why they diverge.
 - **Counterfactual analysis**: fix seed + parameter draw; vary only the policy;
   compare outcomes.
