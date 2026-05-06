@@ -204,22 +204,23 @@ delivery_transition_with_policy <- function(entity, event, param_ctx = NULL) {
 }
 ```
 
-Now build a bundle that uses this extended transition. We also suppress
-`delivery_completed` proposals while a courier is idle with no payload — a
-consistency guard that prevents spurious delivery events:
+Now build a bundle that uses this extended transition. We swap in the new
+transition function and register the two new event types (`accept`, `decline`).
+We also wrap `propose_events` so that it suppresses `delivery_completed`
+proposals when the courier has no payload — a consistency guard preventing
+spurious delivery completions after a decline:
 
 ```{r}
 delivery_bundle_with_policy <- function(params = list()) {
-  base          <- delivery_bundle(params)
-  base_propose  <- base$propose
+  base <- delivery_bundle(params)
+  base_propose_events <- base$propose_events
 
   base$transition    <- delivery_transition_with_policy
   base$event_catalog <- c(base$event_catalog, "accept", "decline")
 
-  # Suppress delivery proposals when the courier has no payload.
-  base$propose <- function(entity, param_ctx = NULL,
-                           process_ids = NULL, current_proposals = NULL) {
-    props   <- base_propose(entity, param_ctx, process_ids, current_proposals)
+  base$propose_events <- function(entity, param_ctx = NULL,
+                                  process_ids = NULL, current_proposals = NULL) {
+    props   <- base_propose_events(entity, param_ctx, process_ids, current_proposals)
     payload <- suppressWarnings(as.numeric(entity$current$payload_kg))
     if (is.finite(payload) && payload <= 0) props$delivery <- NULL
     props

@@ -189,23 +189,24 @@ delivery_transition_with_policy <- function(entity, event, param_ctx = NULL) {
 }
 ```
 
-Now build a bundle that uses this extended transition. We also suppress
-`delivery_completed` proposals while a courier is idle with no payload — a
-consistency guard that prevents spurious delivery events:
+Now build a bundle that uses this extended transition. We swap in the new
+transition function and register the two new event types (`accept`, `decline`).
+We also wrap `propose_events` so that it suppresses `delivery_completed`
+proposals when the courier has no payload — a consistency guard preventing
+spurious delivery completions after a decline:
 
 
 ``` r
 delivery_bundle_with_policy <- function(params = list()) {
-  base          <- delivery_bundle(params)
-  base_propose  <- base$propose
+  base <- delivery_bundle(params)
+  base_propose_events <- base$propose_events
 
   base$transition    <- delivery_transition_with_policy
   base$event_catalog <- c(base$event_catalog, "accept", "decline")
 
-  # Suppress delivery proposals when the courier has no payload.
-  base$propose <- function(entity, param_ctx = NULL,
-                           process_ids = NULL, current_proposals = NULL) {
-    props   <- base_propose(entity, param_ctx, process_ids, current_proposals)
+  base$propose_events <- function(entity, param_ctx = NULL,
+                                  process_ids = NULL, current_proposals = NULL) {
+    props   <- base_propose_events(entity, param_ctx, process_ids, current_proposals)
     payload <- suppressWarnings(as.numeric(entity$current$payload_kg))
     if (is.finite(payload) && payload <= 0) props$delivery <- NULL
     props
@@ -297,9 +298,9 @@ cat("  Final battery:       ", round(out_accept$entity$current$battery_pct, 1), 
 cat("Battery-threshold policy:\n")
 #> Battery-threshold policy:
 cat("  Deliveries completed:", count_deliveries(out_threshold), "\n")
-#>   Deliveries completed: 5
+#>   Deliveries completed: 4
 cat("  Final battery:       ", round(out_threshold$entity$current$battery_pct, 1), "%\n")
-#>   Final battery:        57.9 %
+#>   Final battery:        58.4 %
 ```
 
 The always-accept courier takes every dispatch and drains the battery more
@@ -380,8 +381,8 @@ head(tr_df, 10) |> kable(digits = 2)
 | 2.29|dispatch_decision |dispatch_check |decline      |NA            |              58.39|             58.39|in_transit           |assigned            |
 | 2.96|dispatch_decision |dispatch_check |decline      |NA            |              58.39|             58.39|idle                 |assigned            |
 | 4.33|dispatch_decision |dispatch_check |decline      |NA            |              58.39|             58.39|idle                 |assigned            |
-| 5.87|dispatch_decision |dispatch_check |decline      |NA            |              57.91|             57.91|completed            |assigned            |
-| 6.75|dispatch_decision |dispatch_check |decline      |NA            |              57.91|             57.91|idle                 |assigned            |
+| 5.72|dispatch_decision |dispatch_check |decline      |NA            |              58.39|             58.39|idle                 |assigned            |
+| 7.46|dispatch_decision |dispatch_check |decline      |NA            |              58.39|             58.39|idle                 |assigned            |
 
 
 
@@ -671,14 +672,14 @@ kable(summary_tbl)
 
 |Metric                             | Value|
 |:----------------------------------|-----:|
-|Deliveries (accept): mean          |  5.10|
+|Deliveries (accept): mean          |  4.90|
 |Deliveries (accept): median        |  5.00|
-|Deliveries (threshold): mean       |  4.10|
+|Deliveries (threshold): mean       |  3.90|
 |Deliveries (threshold): median     |  4.00|
-|Delta deliveries: mean             | -0.92|
-|P(threshold > accept) — deliveries |  0.01|
-|Delta battery: mean                |  7.60|
-|P(threshold > accept) — battery    |  0.60|
+|Delta deliveries: mean             | -1.03|
+|P(threshold > accept) — deliveries |  0.00|
+|Delta battery: mean                |  8.00|
+|P(threshold > accept) — battery    |  0.62|
 
 
 
