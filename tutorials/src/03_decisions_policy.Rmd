@@ -125,10 +125,9 @@ schema_with_dp <- set_schema(
 
 ## Writing policies
 
-A **policy** is a plain R list with a `propose_action` function. That function
-receives the decision point object and the current courier state, and returns
-an `ActionEvent` proposing what should happen next — or `NULL` for "no
-intervention."
+A **policy** is a plain R function that receives the firing decision point and
+the current courier state, and returns an `ActionEvent` proposing what should
+happen next — or `NULL` for "no intervention."
 
 ### Policy A: always accept
 
@@ -136,16 +135,12 @@ The simplest possible policy — accept every dispatch regardless of state.
 This is equivalent to having no policy at all, and serves as a baseline.
 
 ```{r}
-policy_always_accept <- list(
-
-  propose_action = function(decision_point, entity) {
-    ActionEvent(
-      action_type       = "accept",
-      time_next         = entity$last_time + 0.01,
-      decision_point_id = decision_point$id
-    )
-  }
-)
+policy_always_accept <- function(decision_point, entity) {
+  ActionEvent(
+    action_type = "accept",
+    time_next   = entity$last_time + 0.01
+  )
+}
 ```
 
 ### Policy B: battery threshold
@@ -155,20 +150,17 @@ battery should stop taking new assignments and coast to shift end rather than
 risk stranding mid-delivery.
 
 ```{r}
-policy_battery_threshold <- list(
-  propose_action = function(decision_point, entity) {
-    battery <- as.numeric(entity$current$battery_pct)
+policy_battery_threshold <- function(decision_point, entity) {
+  battery <- as.numeric(entity$current$battery_pct)
 
-    action <- if (!is.null(battery) && battery < 25) "decline" else "accept"
+  action <- if (!is.null(battery) && battery < 25) "decline" else "accept"
 
-    ActionEvent(
-      action_type       = action,
-      time_next         = entity$last_time + 0.01,
-      decision_point_id = decision_point$id,
-      metadata          = list(battery_at_decision = battery)
-    )
-  }
-)
+  ActionEvent(
+    action_type = action,
+    time_next   = entity$last_time + 0.01,
+    metadata    = list(battery_at_decision = battery)
+  )
+}
 ```
 
 ## Extending the bundle to handle the "decline" action
@@ -378,15 +370,12 @@ schema_cond <- set_schema(
 
 # Policy is now unconditional: the condition handles the filtering,
 # so every time this policy is called, the answer is always "decline".
-policy_decline_only <- list(
-  propose_action = function(decision_point, entity) {
-    ActionEvent(
-      action_type       = "decline",
-      time_next         = entity$last_time + 0.01,
-      decision_point_id = decision_point$id
-    )
-  }
-)
+policy_decline_only <- function(decision_point, entity) {
+  ActionEvent(
+    action_type = "decline",
+    time_next   = entity$last_time + 0.01
+  )
+}
 
 model_cond <- load_model(
   schema     = schema_cond,
@@ -503,29 +492,25 @@ critical override a smaller offset (`+ 0.001` vs. `+ 0.01`), it always wins
 when both are active:
 
 ```{r}
-policy_two_dps <- list(
-  propose_action = function(decision_point, entity) {
-    battery <- as.numeric(entity$current$battery_pct)
+policy_two_dps <- function(decision_point, entity) {
+  battery <- as.numeric(entity$current$battery_pct)
 
-    if (decision_point$id == "battery_critical") {
-      # Emergency override fires first (time_next offset smaller).
-      return(ActionEvent(
-        action_type       = "decline",
-        time_next         = entity$last_time + 0.001,
-        decision_point_id = decision_point$id,
-        metadata          = list(reason = "battery_critical")
-      ))
-    }
-
-    # Routine policy: accept unless battery < 25.
-    action <- if (!is.null(battery) && battery < 25) "decline" else "accept"
-    ActionEvent(
-      action_type       = action,
-      time_next         = entity$last_time + 0.01,
-      decision_point_id = decision_point$id
-    )
+  if (decision_point$id == "battery_critical") {
+    # Emergency override fires first (time_next offset smaller).
+    return(ActionEvent(
+      action_type = "decline",
+      time_next   = entity$last_time + 0.001,
+      metadata    = list(reason = "battery_critical")
+    ))
   }
-)
+
+  # Routine policy: accept unless battery < 25.
+  action <- if (!is.null(battery) && battery < 25) "decline" else "accept"
+  ActionEvent(
+    action_type = action,
+    time_next   = entity$last_time + 0.01
+  )
+}
 ```
 
 With two checkpoints both proposing actions in the same event step, the one
