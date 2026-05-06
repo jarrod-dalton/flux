@@ -351,10 +351,13 @@ data.frame(
 
 
 `state_before` and `state_after` bracket the *trigger event* (`dispatch_check`).
-In this model battery is charged at the subsequent `accept` event, so both
-readings show the same value unless battery changed for another reason during the
-transition. The battery drop appears only in the record for the `accept` event
-itself, which is not a decision point — it is purely mechanical.
+In this model battery is discharged at the subsequent `accept` event, so both
+readings show the same value here. That's because `dispatch_check` only assigns
+a route and payload — it doesn't touch battery. The battery cost is paid later,
+in the `accept` event, which is a separate timeline step (not a decision point).
+If you inspect `dispatch_mode_before` vs `dispatch_mode_after` in the full table
+below, those *do* differ (`idle` → `assigned`) because `dispatch_check` changes
+that variable directly.
 
 `trajectory_table()` collects all records into a data frame, with one row per
 decision and columns for time, state variables, and the action taken. Look for
@@ -370,15 +373,15 @@ head(tr_df, 10) |> kable(digits = 2)
 
 
 
-|    t|decision_point_id |trigger_event  |action_taken | battery_pct_before| battery_pct_after|dispatch_mode_before |dispatch_mode_after |
-|----:|:-----------------|:--------------|:------------|------------------:|-----------------:|:--------------------|:-------------------|
-| 0.36|dispatch_decision |dispatch_check |accept       |              80.00|             80.00|idle                 |assigned            |
-| 1.74|dispatch_decision |dispatch_check |accept       |              63.33|             63.33|in_transit           |assigned            |
-| 2.29|dispatch_decision |dispatch_check |decline      |              58.39|             58.39|in_transit           |assigned            |
-| 2.96|dispatch_decision |dispatch_check |decline      |              58.39|             58.39|idle                 |assigned            |
-| 4.33|dispatch_decision |dispatch_check |decline      |              58.39|             58.39|idle                 |assigned            |
-| 5.87|dispatch_decision |dispatch_check |decline      |              57.91|             57.91|completed            |assigned            |
-| 6.75|dispatch_decision |dispatch_check |decline      |              57.91|             57.91|idle                 |assigned            |
+|    t|decision_point_id |trigger_event  |action_taken |condition_met | battery_pct_before| battery_pct_after|dispatch_mode_before |dispatch_mode_after |
+|----:|:-----------------|:--------------|:------------|:-------------|------------------:|-----------------:|:--------------------|:-------------------|
+| 0.36|dispatch_decision |dispatch_check |accept       |NA            |              80.00|             80.00|idle                 |assigned            |
+| 1.74|dispatch_decision |dispatch_check |accept       |NA            |              63.33|             63.33|in_transit           |assigned            |
+| 2.29|dispatch_decision |dispatch_check |decline      |NA            |              58.39|             58.39|in_transit           |assigned            |
+| 2.96|dispatch_decision |dispatch_check |decline      |NA            |              58.39|             58.39|idle                 |assigned            |
+| 4.33|dispatch_decision |dispatch_check |decline      |NA            |              58.39|             58.39|idle                 |assigned            |
+| 5.87|dispatch_decision |dispatch_check |decline      |NA            |              57.91|             57.91|completed            |assigned            |
+| 6.75|dispatch_decision |dispatch_check |decline      |NA            |              57.91|             57.91|idle                 |assigned            |
 
 
 
@@ -486,20 +489,19 @@ variables you care about:
 ``` r
 tr_cond_df <- trajectory_table(out_cond$trajectory_records,
                                vars = c("battery_pct", "dispatch_mode"))
-cols <- intersect(names(tr_cond_df),
-                  c("t", "battery_pct", "dispatch_mode",
-                    "condition_met", "selected_action"))
-head(tr_cond_df[, cols], 8) |> kable(digits = 2)
+head(tr_cond_df[, c("t", "condition_met", "action_taken",
+                    "battery_pct_before", "dispatch_mode_before")], 8) |>
+  kable(digits = 2)
 ```
 
 
 
-|    x|
-|----:|
-| 3.49|
-| 4.22|
-| 6.07|
-| 7.85|
+|    t|condition_met |action_taken | battery_pct_before|dispatch_mode_before |
+|----:|:-------------|:------------|------------------:|:--------------------|
+| 3.49|FALSE         |NA           |              80.00|idle                 |
+| 4.22|FALSE         |NA           |              80.00|assigned             |
+| 6.07|FALSE         |NA           |              69.08|in_transit           |
+| 7.85|FALSE         |NA           |              68.48|completed            |
 
 
 

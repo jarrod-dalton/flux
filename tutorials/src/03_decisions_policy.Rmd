@@ -340,10 +340,13 @@ data.frame(
 ```
 
 `state_before` and `state_after` bracket the *trigger event* (`dispatch_check`).
-In this model battery is charged at the subsequent `accept` event, so both
-readings show the same value unless battery changed for another reason during the
-transition. The battery drop appears only in the record for the `accept` event
-itself, which is not a decision point — it is purely mechanical.
+In this model battery is discharged at the subsequent `accept` event, so both
+readings show the same value here. That's because `dispatch_check` only assigns
+a route and payload — it doesn't touch battery. The battery cost is paid later,
+in the `accept` event, which is a separate timeline step (not a decision point).
+If you inspect `dispatch_mode_before` vs `dispatch_mode_after` in the full table
+below, those *do* differ (`idle` → `assigned`) because `dispatch_check` changes
+that variable directly.
 
 `trajectory_table()` collects all records into a data frame, with one row per
 decision and columns for time, state variables, and the action taken. Look for
@@ -453,10 +456,9 @@ variables you care about:
 ```{r}
 tr_cond_df <- trajectory_table(out_cond$trajectory_records,
                                vars = c("battery_pct", "dispatch_mode"))
-cols <- intersect(names(tr_cond_df),
-                  c("t", "battery_pct", "dispatch_mode",
-                    "condition_met", "selected_action"))
-head(tr_cond_df[, cols], 8) |> kable(digits = 2)
+head(tr_cond_df[, c("t", "condition_met", "action_taken",
+                    "battery_pct_before", "dispatch_mode_before")], 8) |>
+  kable(digits = 2)
 ```
 
 Rows with `condition_met = FALSE` are the visits where battery was still above
