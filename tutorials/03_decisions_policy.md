@@ -58,20 +58,7 @@ were not there.
 Decision points are declared on the schema, not buried in transition logic.
 This keeps the interface explicit and auditable.
 
-```mermaid
-flowchart TD
-    A["propose_events()"] --> B["pick soonest event"]
-    B --> C["transition() updates state"]
-    C --> D{"DecisionPoint fires?"}
-    D -- No --> E["observe / stop check"]
-    D -- Yes --> F{"condition met?"}
-    F -- No --> G["skip (audit log if audit=TRUE)"]
-    F -- Yes --> H["policy() → ActionEvent"]
-    H --> I["ActionEvent enters timeline"]
-    I --> B
-    G --> E
-    E --> A
-```
+![Engine loop with decision points](figure/engine-loop-decision-point.png)
 
 Here is how we declare the dispatch decision point. Because we want the
 engine to handle `accept` and `decline` events directly — without writing a
@@ -758,6 +745,6 @@ the rest of the flux ecosystem builds on:
 | Same seed, different policy | Isolates the causal effect of the policy on outcomes |
 | Multiple DPs + arbitration | Multiple DPs can fire in one event cycle; earliest `time_next` wins |
 
-**Next:** [05_prepare_operational_data.md](05_prepare_operational_data.md) —
+**Next:** [04_prepare_operational_data.md](04_prepare_operational_data.md) —
 generate synthetic operational logs and prepare them into train/test/validation
 format with `fluxPrepare`.
