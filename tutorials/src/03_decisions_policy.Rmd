@@ -19,8 +19,11 @@ drained — all without anyone making choices. Real systems involve **decisions*
 accept or decline an assignment, a routing algorithm picking surge vs normal
 mode, a fleet manager pulling a low-battery vehicle off the road.
 
-This tutorial introduces **decision points** — the mechanism by which policies
-inject choices into the simulation timeline. By the end you will be able to:
+This tutorial introduces **decision points** and **policies** — the mechanism
+by which choices are injected into the simulation timeline. A **policy** is a
+set of decision rules: given a courier's current state at a specific moment in
+the simulation, it proposes an action such as “accept this dispatch” or
+“decline”. By the end you will be able to:
 
 - declare a decision point on the delivery schema,
 - write a policy function that proposes actions,
@@ -113,28 +116,19 @@ The fields:
 Now assemble a full schema object (variables + time_spec + decision points):
 
 ```{r}
-schema_with_dp <- list(
-  variables       = delivery_schema(),
+schema_with_dp <- set_schema(
+  vars            = delivery_schema(),
   time_spec       = time_spec(unit = "hours"),
   decision_points = list(dp_dispatch)
 )
 ```
 
-> **Note:** `set_schema()` currently manages state variables only and does not
-> accept a `decision_points` argument. The list-construction form above is the
-> intended pattern until `set_schema()` is extended to support decision points.
-
 ## Writing policies
 
-A policy is a list with a `propose_action` method:
-
-```r
-propose_action(decision_point, entity, sim_ctx, param_ctx) -> ActionEvent | NULL
-```
-
-It receives the decision point object and the current courier state (already
-updated by the triggering event's transition) and returns an `ActionEvent`, or
-`NULL` for "no intervention."
+A **policy** is a plain R list with a `propose_action` function. That function
+receives the decision point object and the current courier state, and returns
+an `ActionEvent` proposing what should happen next — or `NULL` for "no
+intervention."
 
 ### Policy A: always accept
 
@@ -344,11 +338,11 @@ In `policy_battery_threshold` above, the state check lives inside
 `propose_action`. This works, but it conflates two concerns: *when should
 this decision be made?* and *what action to take given the current state?*
 
-The `condition` parameter pulls the state guard onto the `DecisionPoint`
-itself. When `condition` returns `FALSE`, the policy is never called and the
-dispatch is processed as normal (accepted by default). Only when the
-condition is met does the policy run — and at that point it can always
-propose the same action without repeating the state check:
+The `condition` parameter on `DecisionPoint()` pulls the state guard out of
+the policy and onto the checkpoint itself. When `condition` returns `FALSE`,
+the policy is never called and the simulation continues normally. The policy
+only runs when the condition is already met, so it can always propose the same
+action without repeating the check:
 
 ```{r}
 dp_dispatch_cond <- DecisionPoint(
@@ -360,8 +354,8 @@ dp_dispatch_cond <- DecisionPoint(
   label           = "Decline dispatch when battery is critically low; log all visits"
 )
 
-schema_cond <- list(
-  variables       = delivery_schema(),
+schema_cond <- set_schema(
+  vars            = delivery_schema(),
   time_spec       = time_spec(unit = "hours"),
   decision_points = list(dp_dispatch_cond)
 )
@@ -384,6 +378,13 @@ model_cond <- load_model(
   trajectory = list(detail = "summary")
 )
 ```
+
+Also, `audit = TRUE` is introduced here. When `audit` is set on a decision
+point that has a `condition`, the simulation logs a record for **every**
+checkpoint visit — not just the ones where the condition was met and the policy
+ran. Records where the condition was not met carry `condition_met = FALSE` and
+`selected_action = NULL`. This gives you a complete history of when the
+condition was and was not satisfied:
 
 Run on the same courier with the same seed:
 
@@ -460,8 +461,8 @@ dp_critical <- DecisionPoint(
   label           = "Emergency override: battery critically low"
 )
 
-schema_two_dps <- list(
-  variables       = delivery_schema(),
+schema_two_dps <- set_schema(
+  vars            = delivery_schema(),
   time_spec       = time_spec(unit = "hours"),
   decision_points = list(dp_standard, dp_critical)
 )
