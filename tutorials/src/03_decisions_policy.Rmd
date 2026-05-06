@@ -78,35 +78,68 @@ were not there.
 Decision points are declared on the schema, not buried in transition logic.
 This keeps the interface explicit and auditable.
 
+```mermaid
+flowchart TD
+    A["propose_events()"] --> B["pick soonest event"]
+    B --> C["transition() updates state"]
+    C --> D{"DecisionPoint fires?"}
+    D -- No --> E["observe / stop check"]
+    D -- Yes --> F{"condition met?"}
+    F -- No --> G["skip (audit log if audit=TRUE)"]
+    F -- Yes --> H["policy() → ActionEvent"]
+    H --> I["ActionEvent enters timeline"]
+    I --> B
+    G --> E
+    E --> A
+```
+
+Here is how we declare the dispatch decision point. Because we want the
+engine to handle `accept` and `decline` events directly — without writing a
+custom transition function — we attach **action handlers** to the decision
+point itself. Each handler is a function that receives the entity and event
+and returns state updates:
+
 ```{r}
 dp_dispatch <- DecisionPoint(
   id              = "dispatch_decision",
   trigger         = "dispatch_check",
   allowed_actions = c("accept", "decline"),
-  label           = "Accept or decline an incoming dispatch assignment"
+  action_handlers = list(
+    accept = function(entity, event) {
+      # Accepting is a no-op: the base transition already assigned route,
+      # payload, and charged battery at dispatch_check.
+      NULL
+    },
+    decline = function(entity, event) {
+      # Declining reverses the dispatch: drop payload, refund battery,
+      # and return to idle.
+      battery_before_dispatch <- as.numeric(entity$current$battery_pct)
+      list(dispatch_mode = "idle", payload_kg = 0)
+    }
+  )
 )
 ```
 
 The fields:
-- **`trigger`**: which event(s) cause this decision point to fire. Here we use
-  the string `"dispatch_check"`, meaning the checkpoint activates every time
-  a dispatch arrives. You can also supply a vector of event names, or a
-  function `function(event)` that inspects event metadata and returns
-  `TRUE`/`FALSE` for selective firing.
 
-- **`condition`**: an optional function `function(entity)` that is evaluated
-  *after* the transition runs. Why after? Because the fleet manager needs
-  up-to-date state to make a decision — the courier's `battery_pct` may have
-  changed during the transition. If `condition` returns `FALSE`, the policy
-  is skipped for this event cycle. We don't use a condition yet (every
-  `dispatch_check` should prompt a decision), but we will introduce it later.
+- **`trigger`**: which event(s) cause this decision point to fire. Here,
+  `"dispatch_check"` — the checkpoint activates every time a dispatch arrives.
 
-- **`audit`**: logical (default `FALSE`). When `TRUE`, the simulation logs a
-  `TrajectoryRecord` even for cycles where `condition` suppressed the policy
-  call — useful for post-hoc analysis of "what *could* have happened."
+- **`allowed_actions`**: the set of actions the policy may propose.
+  Anything outside this set is rejected by the engine.
 
-- **`allowed_actions`**: the set of actions the policy is permitted to
-  propose. Anything outside this set is rejected by the engine.
+- **`action_handlers`**: a named list mapping each action type to a function
+  `function(entity, event) → list(state_updates)` or `NULL`. When the engine
+  picks up an ActionEvent whose type has a handler here, it calls the handler
+  directly — no custom `transition()` or bundle wrapper needed. The handler's
+  return value is applied as state updates just like a transition would.
+
+- **`condition`** (not used yet): an optional function `function(entity)`
+  evaluated *after* the trigger transition. If it returns `FALSE`, the policy
+  is skipped. We will introduce it later.
+
+- **`audit`** (default `FALSE`): when `TRUE`, the engine logs a record even
+  for cycles where `condition` suppressed the policy call.
 
 Now assemble a full schema object (variables + time_spec + decision points):
 
@@ -158,94 +191,25 @@ policy_battery_threshold <- function(decision_point, entity) {
 }
 ```
 
-## Extending the bundle to handle the "decline" action
-
-When the policy proposes "decline", that action enters the event timeline as
-an `ActionEvent` and flows through `transition()`. We need the transition
-function to handle it — in this case, by reverting the dispatch (resetting
-mode back to idle and dropping the payload that was just assigned).
-
-There is one additional modelling choice here. In the base model, battery
-drain is charged at `dispatch_check` — meaning the cost is incurred
-regardless of whether the courier accepts. For the policy to have real
-consequences, the battery cost must be moved to the `accept` event. A courier
-who declines neither takes on payload nor pays the battery cost:
-
-```{r}
-# Extended transition: battery cost on "accept" (not on dispatch_check),
-# so the policy choice has real consequences for remaining range.
-delivery_transition_with_policy <- function(entity, event, param_ctx = NULL) {
-
-  if (identical(event$event_type, "dispatch_check")) {
-    # Offer arrives: assign route and payload only.  Battery cost comes later.
-    return(list(
-      route_zone    = sample(c("urban", "suburban", "rural"), size = 1,
-                             prob = c(0.55, 0.30, 0.15)),
-      dispatch_mode = "assigned",
-      payload_kg    = rlnorm(1, meanlog = log(3.0), sdlog = 0.35)
-    ))
-  }
-
-  if (identical(event$event_type, "accept")) {
-    # Courier takes the job: pay the battery cost now.
-    battery_now  <- as.numeric(entity$current$battery_pct)
-    if (!is.finite(battery_now)) battery_now <- 100
-    battery_drop <- rexp(1, rate = 1 / 2.5)
-    return(list(battery_pct = max(0, battery_now - battery_drop)))
-  }
-
-  if (identical(event$event_type, "decline")) {
-    # Courier passes: undo the assignment, no battery cost.
-    return(list(dispatch_mode = "idle", payload_kg = 0))
-  }
-
-  # All other events (delivery_completed, end_shift) use the base transition.
-  delivery_transition(entity, event, param_ctx)
-}
-```
-
-Now build a bundle that uses this extended transition. We swap in the new
-transition function and register the two new event types (`accept`, `decline`).
-We also wrap `propose_events` so that it suppresses `delivery_completed`
-proposals when the courier has no payload — a consistency guard preventing
-spurious delivery completions after a decline:
-
-```{r}
-delivery_bundle_with_policy <- function(params = list()) {
-  base <- delivery_bundle(params)
-  base_propose_events <- base$propose_events
-
-  base$transition    <- delivery_transition_with_policy
-  base$event_catalog <- c(base$event_catalog, "accept", "decline")
-
-  base$propose_events <- function(entity, param_ctx = NULL,
-                                  process_ids = NULL, current_proposals = NULL) {
-    props   <- base_propose_events(entity, param_ctx, process_ids, current_proposals)
-    payload <- suppressWarnings(as.numeric(entity$current$payload_kg))
-    if (is.finite(payload) && payload <= 0) props$delivery <- NULL
-    props
-  }
-
-  base
-}
-```
-
 ## Assembling with `load_model()`
 
-When decision points are present, `load_model()` is the recommended assembly
-path. It validates that the schema, bundle, policy, and trajectory configuration
-are mutually consistent before any run begins.
+With `action_handlers` on the decision point, we don't need a custom
+transition function or a bundle wrapper. The base `delivery_bundle()` handles
+all natural events (dispatch, delivery, end_shift), and the engine routes
+action events to the handlers automatically.
+
+`load_model()` validates that the schema, bundle, policy, and trajectory
+configuration are mutually consistent before any run begins.
 
 Reproducibility is controlled through a `RuntimeContext`. Passing a `seed`
-there ensures that every stochastic draw during the run — dispatch timing,
-battery drain, route assignment — starts from a known state. Using the same
-seed value across both models is what makes the comparison meaningful: every
+ensures that every stochastic draw during the run starts from a known state.
+Using the same seed across both models makes the comparison meaningful: every
 difference in outcome is caused by the policy, not by random chance.
 
 ```{r}
 model_accept <- load_model(
   schema     = schema_with_dp,
-  bundle     = delivery_bundle_with_policy(),
+  bundle     = delivery_bundle(),
   policy     = policy_always_accept,
   trajectory = list(detail = "summary"),
   runtime    = RuntimeContext(seed = 500)
@@ -253,7 +217,7 @@ model_accept <- load_model(
 
 model_threshold <- load_model(
   schema     = schema_with_dp,
-  bundle     = delivery_bundle_with_policy(),
+  bundle     = delivery_bundle(),
   policy     = policy_battery_threshold,
   trajectory = list(detail = "summary"),
   runtime    = RuntimeContext(seed = 500)
@@ -341,13 +305,11 @@ data.frame(
 ```
 
 `state_before` and `state_after` bracket the *trigger event* (`dispatch_check`).
-In this model battery is discharged at the subsequent `accept` event, so both
-readings show the same value here. That's because `dispatch_check` only assigns
-a route and payload — it doesn't touch battery. The battery cost is paid later,
-in the `accept` event, which is a separate timeline step (not a decision point).
-If you inspect `dispatch_mode_before` vs `dispatch_mode_after` in the full table
-below, those *do* differ (`idle` → `assigned`) because `dispatch_check` changes
-that variable directly.
+The base transition assigns a route, adds payload, and charges a battery cost
+all in one step — so you will typically see battery drop between `state_before`
+and `state_after`. The `accept` action handler is a no-op (everything was
+already handled by the trigger), while `decline` reverses the assignment by
+resetting mode to idle and dropping payload.
 
 `trajectory_table()` collects all records into a data frame, with one row per
 decision and columns for time, state variables, and the action taken. Look for
@@ -383,6 +345,11 @@ dp_dispatch_cond <- DecisionPoint(
   trigger         = "dispatch_check",
   condition       = function(entity) entity$current$battery_pct < 25,
   allowed_actions = c("decline"),
+  action_handlers = list(
+    decline = function(entity, event) {
+      list(dispatch_mode = "idle", payload_kg = 0)
+    }
+  ),
   audit           = TRUE,
   label           = "Decline dispatch when battery is critically low; log all visits"
 )
@@ -404,7 +371,7 @@ policy_decline_only <- function(decision_point, entity) {
 
 model_cond <- load_model(
   schema     = schema_cond,
-  bundle     = delivery_bundle_with_policy(),
+  bundle     = delivery_bundle(),
   policy     = policy_decline_only,
   trajectory = list(detail = "summary"),
   runtime    = RuntimeContext(seed = 99)
@@ -490,6 +457,10 @@ dp_standard <- DecisionPoint(
   id              = "dispatch_accept",
   trigger         = "dispatch_check",
   allowed_actions = c("accept", "decline"),
+  action_handlers = list(
+    accept  = function(entity, event) NULL,
+    decline = function(entity, event) list(dispatch_mode = "idle", payload_kg = 0)
+  ),
   label           = "Routine accept/decline decision"
 )
 
@@ -498,6 +469,9 @@ dp_critical <- DecisionPoint(
   trigger         = "dispatch_check",
   condition       = function(entity) entity$current$battery_pct < 10,
   allowed_actions = c("decline"),
+  action_handlers = list(
+    decline = function(entity, event) list(dispatch_mode = "idle", payload_kg = 0)
+  ),
   audit           = TRUE,
   label           = "Emergency override: battery critically low"
 )
@@ -539,8 +513,8 @@ policy_two_dps <- function(decision_point, entity) {
 ```
 
 With two checkpoints both proposing actions in the same event step, the one
-with `time_next = last_time + 0.001` is scheduled first. The transition
-handles "decline" and the run continues; the second proposal from the routine
+with `time_next = last_time + 0.001` is scheduled first. The action handler
+processes "decline" and the run continues; the second proposal from the routine
 checkpoint has no further effect.
 
 > **Arbitration rule:** When multiple proposed actions are waiting, the engine
@@ -572,13 +546,13 @@ n_reps <- 500
 
 dist_results <- lapply(seq_len(n_reps), function(s) {
   m_a <- load_model(
-    schema  = schema_with_dp, bundle = delivery_bundle_with_policy(),
+    schema  = schema_with_dp, bundle = delivery_bundle(),
     policy  = policy_always_accept, trajectory = list(detail = "none"),
     runtime = RuntimeContext(seed = s)
   )
 
   m_t <- load_model(
-    schema  = schema_with_dp, bundle = delivery_bundle_with_policy(),
+    schema  = schema_with_dp, bundle = delivery_bundle(),
     policy  = policy_battery_threshold, trajectory = list(detail = "none"),
     runtime = RuntimeContext(seed = s)
   )
@@ -672,6 +646,7 @@ the rest of the flux ecosystem builds on:
 |---------|-----------------|
 | `DecisionPoint()` | Declares where in the event timeline a policy is consulted |
 | `trigger` | Pre-transition gate: char event name(s) or `function(event)` on event-level fields |
+| `action_handlers` | Named list of `function(entity, event)` — engine calls these directly for action events, no custom bundle needed |
 | `condition` | Post-transition guard: `function(entity)` on updated state; when it returns `FALSE` the policy call is skipped |
 | `audit = TRUE` | Emit `TrajectoryRecord` even when `condition` suppressed the policy; `condition_met = FALSE` flags those records |
 | Policy function | `function(decision_point, entity)` → `ActionEvent` or NULL; add `sim_ctx` / `param_ctx` to the signature only when needed |

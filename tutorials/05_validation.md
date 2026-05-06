@@ -173,8 +173,6 @@ fc <- forecast(
   S        = 100,
   seed     = 42
 )
-#> Warning: Model schema omits 'alive'; deriving lifecycle status from
-#> bundle$terminal_events.
 ```
 
 ## Predicted event probabilities

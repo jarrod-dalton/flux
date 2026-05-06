@@ -623,24 +623,33 @@ cat("Battery after: ", tr1$state_after$battery_pct, "\n")
 tr_df <- trajectory_table(out_dp$trajectory_records,
                           vars = c("battery_pct", "deliveries_completed"))
 head(tr_df, 10)
-#>           t decision_point_id trigger_event action_taken battery_pct_before
-#> 1  1.986102     post_dispatch      dispatch   stand_down          100.00000
-#> 2  2.919758     post_dispatch      dispatch   stand_down           93.03451
-#> 3  4.221382     post_dispatch      dispatch   stand_down           85.58015
-#> 4  6.200366     post_dispatch      dispatch   stand_down           75.94986
-#> 5  8.233018     post_dispatch      dispatch        surge           64.84819
-#> 6  8.922254     post_dispatch      dispatch        surge           53.85577
-#> 7  9.527006     post_dispatch      dispatch        surge           40.10300
-#> 8 10.263482     post_dispatch      dispatch        surge           20.06496
-#>   battery_pct_after deliveries_completed_before deliveries_completed_after
-#> 1          93.03451                           0                          1
-#> 2          85.58015                           1                          2
-#> 3          75.94986                           2                          3
-#> 4          64.84819                           3                          4
-#> 5          53.85577                           4                          5
-#> 6          40.10300                           5                          6
-#> 7          20.06496                           6                          7
-#> 8           0.00000                           7                          8
+#>           t decision_point_id trigger_event action_taken condition_met
+#> 1  1.986102     post_dispatch      dispatch   stand_down            NA
+#> 2  2.919758     post_dispatch      dispatch   stand_down            NA
+#> 3  4.221382     post_dispatch      dispatch   stand_down            NA
+#> 4  6.200366     post_dispatch      dispatch   stand_down            NA
+#> 5  8.233018     post_dispatch      dispatch        surge            NA
+#> 6  8.922254     post_dispatch      dispatch        surge            NA
+#> 7  9.527006     post_dispatch      dispatch        surge            NA
+#> 8 10.263482     post_dispatch      dispatch        surge            NA
+#>   battery_pct_before battery_pct_after deliveries_completed_before
+#> 1          100.00000          93.03451                           0
+#> 2           93.03451          85.58015                           1
+#> 3           85.58015          75.94986                           2
+#> 4           75.94986          64.84819                           3
+#> 5           64.84819          53.85577                           4
+#> 6           53.85577          40.10300                           5
+#> 7           40.10300          20.06496                           6
+#> 8           20.06496           0.00000                           7
+#>   deliveries_completed_after
+#> 1                          1
+#> 2                          2
+#> 3                          3
+#> 4                          4
+#> 5                          5
+#> 6                          6
+#> 7                          7
+#> 8                          8
 ```
 
 Notice the pattern: the policy switches to "surge" as the battery drops below
