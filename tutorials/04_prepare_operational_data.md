@@ -1,4 +1,4 @@
-Tutorials 03 and 04 ran the delivery model forward from known starting states.
+Tutorials 01–03 ran the delivery model forward from known starting states.
 In practice, the starting states come from **operational data** — sensor logs,
 transaction records, GPS pings — that must be cleaned, aligned, and split before
 the model can consume them.
@@ -12,6 +12,64 @@ that the forecast and validation tools expect. By the end you will be able to:
 - split by entity (no data leakage),
 - build a TTV event process (anchored intervals with outcomes),
 - reconstruct agent state at a forecast anchor time.
+
+## Why preparation is its own step
+
+The flux ecosystem is built around process-explicit, event-driven models. In
+this framework we do not start with regression models applied directly to raw
+operational tables. Instead, we explicitly define the processes by which entity
+state evolves over time: events occur, state variables update in response, and
+entities enter and exit follow-up.
+
+This distinction matters because real operational data lives on **multiple
+clocks simultaneously**. Battery readings arrive from irregular sensor pings.
+Delivery completions happen at unpredictable times. Shift boundaries are
+deterministic but vary per agent. Traditional tabular analyses often flatten
+this complexity by imposing an implicit time grid or silently carrying forward
+stale values — choices that encode assumptions whether or not we acknowledge
+them.
+
+The flux approach makes time, events, and state *explicit*, and surfaces
+modeling assumptions rather than burying them. Preparation is where those
+assumptions are specified.
+
+### Core concepts
+
+- **Anchors** are the time points at which entity state is reconstructed.
+  Rather than imposing a regular grid (e.g., hourly snapshots), anchors can be
+  defined at clinically or operationally meaningful moments — event
+  occurrences, measurement arrivals, or shift starts. This keeps training data
+  aligned with the structure the simulation enforces.
+
+- **Intervals** are the spans between consecutive anchors. Each interval has a
+  start anchor, an end anchor, a duration, and zero or more events occurring
+  within it. Rows in a TTV dataset are defined at the interval level:
+  covariates represent state at the start, outcomes represent events within or
+  at the end.
+
+- **As-of state** means that at each anchor, entity state is reconstructed
+  using only data available *as of that time*, subject to explicit recency and
+  validity rules (`lookback`, `staleness`). This avoids leaking future
+  information into training rows.
+
+- **Follow-up ≠ alive.** An agent may be alive but no longer observed (e.g.,
+  went off-shift, left the fleet). After follow-up ends, state is undefined.
+  This distinction is essential for correct denominators in both model
+  development and downstream validation.
+
+### The Prepare workflow: standardize → segment → build
+
+The `fluxPrepare` pipeline has three stages:
+
+1. **Standardize** (`prepare_events()`, `prepare_observations()`) — convert
+   heterogeneous raw tables into a consistent internal format with a shared
+   time scale.
+2. **Segment** (`spec_event_process()` + segmentation helpers) — define how
+   follow-up is divided into start–stop intervals. Segmentation means: "when
+   meaningful new information arrives, start a new interval."
+3. **Build** (`build_ttv_event_process()`, `reconstruct_state_at()`) — produce
+   rows suitable for model training, with entity-level train/test/validation
+   splits.
 
 ## Load the model and data generator
 
@@ -57,39 +115,75 @@ Let's look at each:
 
 
 ``` r
-head(ops$entities)
-#>   entity_id vehicle_type home_zone
-#> 1 agent_001          van  suburban
-#> 2 agent_002          van  suburban
-#> 3 agent_003        ebike     urban
-#> 4 agent_004      scooter  suburban
-#> 5 agent_005      scooter     urban
-#> 6 agent_006      scooter  suburban
-head(ops$observations)
-#>   entity_id     time battery_pct
-#> 1 agent_001 1.192576        96.9
-#> 2 agent_001 1.361300        96.3
-#> 3 agent_001 2.348991        91.2
-#> 4 agent_001 2.592688        91.9
-#> 5 agent_001 3.155528        91.3
-#> 6 agent_001 5.755029        61.7
-head(ops$events)
-#>   entity_id     time         event_type
-#> 1 agent_001 2.376843 delivery_completed
-#> 2 agent_001 3.445999 delivery_completed
-#> 3 agent_001 5.190126 delivery_completed
-#> 4 agent_001 5.663729 delivery_completed
-#> 5 agent_001 7.264171 delivery_completed
-#> 6 agent_001 7.452949 delivery_completed
-head(ops$followup)
-#>   entity_id          shift_id followup_start followup_end
-#> 1 agent_001 agent_001_shift_1              0            8
-#> 2 agent_001 agent_001_shift_2             24           32
-#> 3 agent_001 agent_001_shift_3             48           56
-#> 4 agent_001 agent_001_shift_4             72           80
-#> 5 agent_001 agent_001_shift_5             96          104
-#> 6 agent_001 agent_001_shift_6            120          128
+head(ops$entities) |> kable()
 ```
+
+
+
+|entity_id |vehicle_type |home_zone |
+|:---------|:------------|:---------|
+|agent_001 |van          |suburban  |
+|agent_002 |van          |suburban  |
+|agent_003 |ebike        |urban     |
+|agent_004 |scooter      |suburban  |
+|agent_005 |scooter      |urban     |
+|agent_006 |scooter      |suburban  |
+
+
+
+
+``` r
+head(ops$observations) |> kable(digits = 2)
+```
+
+
+
+|entity_id | time| battery_pct|
+|:---------|----:|-----------:|
+|agent_001 | 1.19|        96.9|
+|agent_001 | 1.36|        96.3|
+|agent_001 | 2.35|        91.2|
+|agent_001 | 2.59|        91.9|
+|agent_001 | 3.16|        91.3|
+|agent_001 | 5.76|        61.7|
+
+
+
+
+``` r
+head(ops$events) |> kable(digits = 2)
+```
+
+
+
+|entity_id | time|event_type         |
+|:---------|----:|:------------------|
+|agent_001 | 2.38|delivery_completed |
+|agent_001 | 3.45|delivery_completed |
+|agent_001 | 5.19|delivery_completed |
+|agent_001 | 5.66|delivery_completed |
+|agent_001 | 7.26|delivery_completed |
+|agent_001 | 7.45|delivery_completed |
+
+
+
+
+``` r
+head(ops$followup) |> kable(digits = 2)
+```
+
+
+
+|entity_id |shift_id          | followup_start| followup_end|
+|:---------|:-----------------|--------------:|------------:|
+|agent_001 |agent_001_shift_1 |              0|            8|
+|agent_001 |agent_001_shift_2 |             24|           32|
+|agent_001 |agent_001_shift_3 |             48|           56|
+|agent_001 |agent_001_shift_4 |             72|           80|
+|agent_001 |agent_001_shift_5 |             96|          104|
+|agent_001 |agent_001_shift_6 |            120|          128|
+
+
 
 Notice that observations are in **long format** (entity_id × time × variable ×
 value). This is the canonical shape `fluxPrepare` expects for continuous
@@ -106,14 +200,24 @@ Tuesday shift.
 ``` r
 splits <- generate_splits(ops$entities, train_frac = 0.6, test_frac = 0.2,
                           seed = 123)
-head(splits)
-#>   entity_id      split
-#> 1 agent_001       test
-#> 2 agent_002 validation
-#> 3 agent_003      train
-#> 4 agent_004       test
-#> 5 agent_005      train
-#> 6 agent_006 validation
+head(splits) |> kable()
+```
+
+
+
+|entity_id |split      |
+|:---------|:----------|
+|agent_001 |test       |
+|agent_002 |validation |
+|agent_003 |train      |
+|agent_004 |test       |
+|agent_005 |train      |
+|agent_006 |validation |
+
+
+
+
+``` r
 table(splits$split)
 #> 
 #>       test      train validation 
@@ -136,16 +240,25 @@ events_prep <- prepare_events(
   sort      = TRUE
 )
 
-head(events_prep)
-#>   entity_id     time         event_type source_table
-#> 1 agent_001 2.376843 delivery_completed         <NA>
-#> 2 agent_001 3.445999 delivery_completed         <NA>
-#> 3 agent_001 5.190126 delivery_completed         <NA>
-#> 4 agent_001 5.663729 delivery_completed         <NA>
-#> 5 agent_001 7.264171 delivery_completed         <NA>
-#> 6 agent_001 7.452949 delivery_completed         <NA>
-nrow(events_prep)
-#> [1] 1360
+head(events_prep) |> kable(digits = 2)
+```
+
+
+
+|entity_id | time|event_type         |source_table |
+|:---------|----:|:------------------|:------------|
+|agent_001 | 2.38|delivery_completed |NA           |
+|agent_001 | 3.45|delivery_completed |NA           |
+|agent_001 | 5.19|delivery_completed |NA           |
+|agent_001 | 5.66|delivery_completed |NA           |
+|agent_001 | 7.26|delivery_completed |NA           |
+|agent_001 | 7.45|delivery_completed |NA           |
+
+
+
+``` r
+cat("Total rows:", nrow(events_prep), "\n")
+#> Total rows: 1360
 ```
 
 ## `prepare_observations()` — canonical observation format
@@ -169,16 +282,25 @@ obs_prep <- prepare_observations(
   sort      = TRUE
 )
 
-head(obs_prep)
-#>   entity_id     time   group battery_pct source_table
-#> 1 agent_001 1.192576 battery        96.9      battery
-#> 2 agent_001 1.361300 battery        96.3      battery
-#> 3 agent_001 2.348991 battery        91.2      battery
-#> 4 agent_001 2.592688 battery        91.9      battery
-#> 5 agent_001 3.155528 battery        91.3      battery
-#> 6 agent_001 5.755029 battery        61.7      battery
-nrow(obs_prep)
-#> [1] 3806
+head(obs_prep) |> kable(digits = 2)
+```
+
+
+
+|entity_id | time|group   | battery_pct|source_table |
+|:---------|----:|:-------|-----------:|:------------|
+|agent_001 | 1.19|battery |        96.9|battery      |
+|agent_001 | 1.36|battery |        96.3|battery      |
+|agent_001 | 2.35|battery |        91.2|battery      |
+|agent_001 | 2.59|battery |        91.9|battery      |
+|agent_001 | 3.16|battery |        91.3|battery      |
+|agent_001 | 5.76|battery |        61.7|battery      |
+
+
+
+``` r
+cat("Total rows:", nrow(obs_prep), "\n")
+#> Total rows: 3806
 ```
 
 ## `prepare_splits()` — validate the split table
@@ -204,7 +326,7 @@ one split assignment and that split labels are from the allowed set
 
 ## Building the TTV event process
 
-The core analytical question for Tutorial 06 (validation) is: **given an agent's
+The core analytical question for Tutorial 05 (validation) is: **given an agent's
 state at time t₀, what is the probability of a delivery completion within the
 next H hours?**
 
@@ -258,25 +380,27 @@ belong to train, test, or validation.
 ``` r
 ttv_train <- ttv[ttv$split == "train", ]
 ttv_test  <- ttv[ttv$split == "test", ]
-head(ttv_test)
-#>    entity_id split t0        t1    deltat event_occurred         event_type
-#> 1  agent_001  test  0 2.3768432 2.3768432           TRUE delivery_completed
-#> 4  agent_004  test  0 3.2884482 3.2884482           TRUE delivery_completed
-#> 17 agent_017  test  0 2.3255248 2.3255248           TRUE delivery_completed
-#> 21 agent_021  test  0 2.3429078 2.3429078           TRUE delivery_completed
-#> 23 agent_023  test  0 0.7654377 0.7654377           TRUE delivery_completed
-#> 25 agent_025  test  0 0.8656996 0.8656996           TRUE delivery_completed
-#>    censoring_time
-#> 1               8
-#> 4               8
-#> 17              8
-#> 21              8
-#> 23              8
-#> 25              8
-nrow(ttv_train)
-#> [1] 18
-nrow(ttv_test)
-#> [1] 6
+head(ttv_test) |> kable(digits = 2)
+```
+
+
+
+|   |entity_id |split | t0|   t1| deltat|event_occurred |event_type         | censoring_time|
+|:--|:---------|:-----|--:|----:|------:|:--------------|:------------------|--------------:|
+|1  |agent_001 |test  |  0| 2.38|   2.38|TRUE           |delivery_completed |              8|
+|4  |agent_004 |test  |  0| 3.29|   3.29|TRUE           |delivery_completed |              8|
+|17 |agent_017 |test  |  0| 2.33|   2.33|TRUE           |delivery_completed |              8|
+|21 |agent_021 |test  |  0| 2.34|   2.34|TRUE           |delivery_completed |              8|
+|23 |agent_023 |test  |  0| 0.77|   0.77|TRUE           |delivery_completed |              8|
+|25 |agent_025 |test  |  0| 0.87|   0.87|TRUE           |delivery_completed |              8|
+
+
+
+``` r
+cat("Train rows:", nrow(ttv_train), "\n")
+#> Train rows: 18
+cat("Test rows: ", nrow(ttv_test), "\n")
+#> Test rows:  6
 ```
 
 Each row is one entity × one interval: `entity_id`, `t0` (anchor time),
@@ -300,19 +424,25 @@ state_at_t0 <- reconstruct_state_at(
   time_spec    = time_spec(unit = "hours")
 )
 
-head(state_at_t0)
-#>   entity_id t0 battery_pct .time_battery_pct .prov_battery_pct
-#> 1 agent_001  0          NA                NA           missing
-#> 2 agent_004  0          NA                NA           missing
-#> 3 agent_017  0          NA                NA           missing
-#> 4 agent_021  0          NA                NA           missing
-#> 5 agent_023  0          NA                NA           missing
-#> 6 agent_025  0          NA                NA           missing
+head(state_at_t0) |> kable(digits = 2)
 ```
+
+
+
+|entity_id | t0|battery_pct | .time_battery_pct|.prov_battery_pct |
+|:---------|--:|:-----------|-----------------:|:-----------------|
+|agent_001 |  0|NA          |                NA|missing           |
+|agent_004 |  0|NA          |                NA|missing           |
+|agent_017 |  0|NA          |                NA|missing           |
+|agent_021 |  0|NA          |                NA|missing           |
+|agent_023 |  0|NA          |                NA|missing           |
+|agent_025 |  0|NA          |                NA|missing           |
+
+
 
 Each row tells you: "for entity X at anchor time t₀, the last observed
 battery_pct was Y." This is the starting state you feed to the Engine in
-Tutorial 06 when running forecasts from the test set.
+Tutorial 05 when running forecasts from the test set.
 
 ## Putting it together
 
@@ -346,5 +476,5 @@ predictions.
 | `build_ttv_event_process()` | Anchored intervals with outcomes, split by TTV |
 | `reconstruct_state_at()` | Recover state at each anchor time from history |
 
-**Next:** [06_validation.md](06_validation.md) — forecast from the test-set
+**Next:** [05_validation.md](05_validation.md) — forecast from the test-set
 baselines and compare predicted vs observed outcomes using `fluxValidation`.

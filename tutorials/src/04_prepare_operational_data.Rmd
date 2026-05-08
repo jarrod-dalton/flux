@@ -13,10 +13,11 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 suppressPackageStartupMessages({
   library(fluxCore)
   library(fluxPrepare)
+  library(knitr)
 })
 ```
 
-Tutorials 03 and 04 ran the delivery model forward from known starting states.
+Tutorials 01–03 ran the delivery model forward from known starting states.
 In practice, the starting states come from **operational data** — sensor logs,
 transaction records, GPS pings — that must be cleaned, aligned, and split before
 the model can consume them.
@@ -30,6 +31,64 @@ that the forecast and validation tools expect. By the end you will be able to:
 - split by entity (no data leakage),
 - build a TTV event process (anchored intervals with outcomes),
 - reconstruct agent state at a forecast anchor time.
+
+## Why preparation is its own step
+
+The flux ecosystem is built around process-explicit, event-driven models. In
+this framework we do not start with regression models applied directly to raw
+operational tables. Instead, we explicitly define the processes by which entity
+state evolves over time: events occur, state variables update in response, and
+entities enter and exit follow-up.
+
+This distinction matters because real operational data lives on **multiple
+clocks simultaneously**. Battery readings arrive from irregular sensor pings.
+Delivery completions happen at unpredictable times. Shift boundaries are
+deterministic but vary per agent. Traditional tabular analyses often flatten
+this complexity by imposing an implicit time grid or silently carrying forward
+stale values — choices that encode assumptions whether or not we acknowledge
+them.
+
+The flux approach makes time, events, and state *explicit*, and surfaces
+modeling assumptions rather than burying them. Preparation is where those
+assumptions are specified.
+
+### Core concepts
+
+- **Anchors** are the time points at which entity state is reconstructed.
+  Rather than imposing a regular grid (e.g., hourly snapshots), anchors can be
+  defined at clinically or operationally meaningful moments — event
+  occurrences, measurement arrivals, or shift starts. This keeps training data
+  aligned with the structure the simulation enforces.
+
+- **Intervals** are the spans between consecutive anchors. Each interval has a
+  start anchor, an end anchor, a duration, and zero or more events occurring
+  within it. Rows in a TTV dataset are defined at the interval level:
+  covariates represent state at the start, outcomes represent events within or
+  at the end.
+
+- **As-of state** means that at each anchor, entity state is reconstructed
+  using only data available *as of that time*, subject to explicit recency and
+  validity rules (`lookback`, `staleness`). This avoids leaking future
+  information into training rows.
+
+- **Follow-up ≠ alive.** An agent may be alive but no longer observed (e.g.,
+  went off-shift, left the fleet). After follow-up ends, state is undefined.
+  This distinction is essential for correct denominators in both model
+  development and downstream validation.
+
+### The Prepare workflow: standardize → segment → build
+
+The `fluxPrepare` pipeline has three stages:
+
+1. **Standardize** (`prepare_events()`, `prepare_observations()`) — convert
+   heterogeneous raw tables into a consistent internal format with a shared
+   time scale.
+2. **Segment** (`spec_event_process()` + segmentation helpers) — define how
+   follow-up is divided into start–stop intervals. Segmentation means: "when
+   meaningful new information arrives, start a new interval."
+3. **Build** (`build_ttv_event_process()`, `reconstruct_state_at()`) — produce
+   rows suitable for model training, with entity-level train/test/validation
+   splits.
 
 ## Load the model and data generator
 
@@ -66,10 +125,19 @@ str(ops, max.level = 1)
 Let's look at each:
 
 ```{r}
-head(ops$entities)
-head(ops$observations)
-head(ops$events)
-head(ops$followup)
+head(ops$entities) |> kable()
+```
+
+```{r}
+head(ops$observations) |> kable(digits = 2)
+```
+
+```{r}
+head(ops$events) |> kable(digits = 2)
+```
+
+```{r}
+head(ops$followup) |> kable(digits = 2)
 ```
 
 Notice that observations are in **long format** (entity_id × time × variable ×
@@ -86,7 +154,10 @@ Tuesday shift.
 ```{r}
 splits <- generate_splits(ops$entities, train_frac = 0.6, test_frac = 0.2,
                           seed = 123)
-head(splits)
+head(splits) |> kable()
+```
+
+```{r}
 table(splits$split)
 ```
 
@@ -105,8 +176,8 @@ events_prep <- prepare_events(
   sort      = TRUE
 )
 
-head(events_prep)
-nrow(events_prep)
+head(events_prep) |> kable(digits = 2)
+cat("Total rows:", nrow(events_prep), "\n")
 ```
 
 ## `prepare_observations()` — canonical observation format
@@ -129,8 +200,8 @@ obs_prep <- prepare_observations(
   sort      = TRUE
 )
 
-head(obs_prep)
-nrow(obs_prep)
+head(obs_prep) |> kable(digits = 2)
+cat("Total rows:", nrow(obs_prep), "\n")
 ```
 
 ## `prepare_splits()` — validate the split table
@@ -151,7 +222,7 @@ one split assignment and that split labels are from the allowed set
 
 ## Building the TTV event process
 
-The core analytical question for Tutorial 06 (validation) is: **given an agent's
+The core analytical question for Tutorial 05 (validation) is: **given an agent's
 state at time t₀, what is the probability of a delivery completion within the
 next H hours?**
 
@@ -190,9 +261,9 @@ belong to train, test, or validation.
 ```{r}
 ttv_train <- ttv[ttv$split == "train", ]
 ttv_test  <- ttv[ttv$split == "test", ]
-head(ttv_test)
-nrow(ttv_train)
-nrow(ttv_test)
+head(ttv_test) |> kable(digits = 2)
+cat("Train rows:", nrow(ttv_train), "\n")
+cat("Test rows: ", nrow(ttv_test), "\n")
 ```
 
 Each row is one entity × one interval: `entity_id`, `t0` (anchor time),
@@ -215,12 +286,12 @@ state_at_t0 <- reconstruct_state_at(
   time_spec    = time_spec(unit = "hours")
 )
 
-head(state_at_t0)
+head(state_at_t0) |> kable(digits = 2)
 ```
 
 Each row tells you: "for entity X at anchor time t₀, the last observed
 battery_pct was Y." This is the starting state you feed to the Engine in
-Tutorial 06 when running forecasts from the test set.
+Tutorial 05 when running forecasts from the test set.
 
 ## Putting it together
 
@@ -254,5 +325,5 @@ predictions.
 | `build_ttv_event_process()` | Anchored intervals with outcomes, split by TTV |
 | `reconstruct_state_at()` | Recover state at each anchor time from history |
 
-**Next:** [06_validation.md](06_validation.md) — forecast from the test-set
+**Next:** [05_validation.md](05_validation.md) — forecast from the test-set
 baselines and compare predicted vs observed outcomes using `fluxValidation`.

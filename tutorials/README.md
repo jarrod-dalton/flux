@@ -15,18 +15,15 @@ No code; just the ideas you need before touching the tutorials below.
 
 | # | File | Topic |
 |---|---|---|
-| 00 | `00_start_here.md` | Conceptual introduction — modeling approach, entities, processes, decisions, ABM, ecosystem overview |
-| 01 | `01_core_engine_scaffold.md` | Core engine scaffold — schema, Entity, ModelBundle, Engine, variable blocks, cohort runs, policy layering |
-| 02 | `02_prepare_ttv.md` | Data preparation — train/test/validation datasets from irregular longitudinal tables |
-| 03 | `03_validation_observed_grids_and_masks.md` | Validation — mask-driven observed grids and denominators |
-| 04 | `04_validation_event_risk_apples_to_apples.md` | Validation — forecast-compatible event-risk estimands |
-| 05 | `05_orchestration_framework.md` | Orchestration — multi-bundle composition, eligibility gating, priority encoding |
-| 06 | `06_ascvd_ecosystem_welcome.md` | ASCVD reference walkthrough — a concrete domain model exercising the ecosystem |
-| 07 | `07_ascvd_prepare_ttv.md` | ASCVD data preparation — fluxPrepare applied to cardiovascular EHR data |
-| 08 | `08_end_to_end_v1_path.md` | End-to-end validation path — clone to green on the full test stack |
+| 00 | `00_start_here.md` | Conceptual introduction — modeling approach, entities, processes, decisions, ecosystem overview |
+| 01 | `01_core_engine_scaffold.md` | Core engine scaffold — schema, Entity, ModelBundle, Engine, variable blocks, single-entity runs |
+| 02 | `02_cohort_forecast.md` | Cohort forecasting — running many independent entities, aggregating distributions |
+| 03 | `03_decisions_policy.md` | Decision points and policy — DecisionPoint, action handlers, policy functions, trajectory records, counterfactual comparison |
+| 04 | `04_prepare_operational_data.md` | Data preparation — generating synthetic operational logs, train/test/validation splits with fluxPrepare |
+| 05 | `05_validation.md` | Validation — observed grids, masks, forecast-vs-observed comparison with fluxValidation |
 
-Source authoring files are retained (`.Rmd` and `.R`) where relevant, and rendered
-GitHub-viewable markdown (`.md`) is the canonical reading surface.
+Source `.Rmd` files live in `tutorials/src/`; rendered GitHub-viewable `.md`
+files in this directory are the canonical reading surface.
 
 Legacy drafts moved to archive:
 - `archive/_00_ecosystem_welcome.Rmd`
@@ -35,5 +32,5 @@ Legacy drafts moved to archive:
 ## Maturity labels
 
 - `draft`: useful but may change quickly
-- `validated`: exercised against current v1.x behavior/tests
+- `validated`: exercised against current v2.x behavior/tests
 - `stable`: expected to change infrequently
