@@ -11,7 +11,7 @@ that the forecast and validation tools expect. By the end you will be able to:
 - prepare observations and events into canonical format,
 - split by entity (no data leakage),
 - build a TTV event process (anchored intervals with outcomes),
-- reconstruct agent state at a forecast anchor time.
+- reconstruct courier state at a forecast anchor time.
 
 ## Why preparation is its own step
 
@@ -24,7 +24,7 @@ entities enter and exit follow-up.
 This distinction matters because real operational data lives on **multiple
 clocks simultaneously**. Battery readings arrive from irregular sensor pings.
 Delivery completions happen at unpredictable times. Shift boundaries are
-deterministic but vary per agent. Traditional tabular analyses often flatten
+deterministic but vary per courier. Traditional tabular analyses often flatten
 this complexity by imposing an implicit time grid or silently carrying forward
 stale values — choices that encode assumptions whether or not we acknowledge
 them.
@@ -38,7 +38,7 @@ assumptions are specified.
 - **Anchors** are the time points at which entity state is reconstructed.
   Rather than imposing a regular grid (e.g., hourly snapshots), anchors can be
   defined at clinically or operationally meaningful moments — event
-  occurrences, measurement arrivals, or shift starts. This keeps training data
+  occurrences, measurement arrivals, decision points, or shift starts. This keeps training data
   aligned with the structure the simulation enforces.
 
 - **Intervals** are the spans between consecutive anchors. Each interval has a
@@ -52,7 +52,7 @@ assumptions are specified.
   validity rules (`lookback`, `staleness`). This avoids leaking future
   information into training rows.
 
-- **Follow-up ≠ alive.** An agent may be alive but no longer observed (e.g.,
+- **Follow-up ≠ alive.** An entity may be active but no longer observed (e.g.,
   went off-shift, left the fleet). After follow-up ends, state is undefined.
   This distinction is essential for correct denominators in both model
   development and downstream validation.
@@ -88,64 +88,64 @@ a realistic fleet log — the kind of data you'd get from a production system:
 ``` r
 set.seed(42)
 ops <- generate_delivery_log(
-  n_agents = 30,
-  n_shifts = 8,
-  params   = list(shift_length_hours = 8)
+  n_couriers = 30,
+  n_shifts   = 8,
+  params     = list(shift_length_hours = 8)
 )
 ```
 
-The result has four components:
+The result has four tables:
 
 
 ``` r
 str(ops, max.level = 1)
 #> List of 4
-#>  $ entities    :'data.frame':	30 obs. of  3 variables:
-#>  $ observations:'data.frame':	3806 obs. of  3 variables:
-#>  $ events      :'data.frame':	1360 obs. of  3 variables:
-#>  $ followup    :'data.frame':	240 obs. of  4 variables:
+#>  $ couriers:'data.frame':	30 obs. of  3 variables:
+#>  $ battery :'data.frame':	3806 obs. of  3 variables:
+#>  $ events  :'data.frame':	1360 obs. of  3 variables:
+#>  $ shifts  :'data.frame':	240 obs. of  4 variables:
 ```
 
-- **`$entities`** — one row per agent: id, vehicle type, home zone.
-- **`$observations`** — irregular battery readings (sensor pings).
+- **`$couriers`** — one row per courier: id, vehicle type, home zone.
+- **`$battery`** — irregular battery readings (sensor pings).
 - **`$events`** — delivery completion timestamps.
-- **`$followup`** — shift-level follow-up windows.
+- **`$shifts`** — shift-level follow-up windows, with real `POSIXct` timestamps.
 
 Let's look at each:
 
 
 ``` r
-head(ops$entities) |> kable()
+head(ops$couriers) |> kable()
 ```
 
 
 
-|entity_id |vehicle_type |home_zone |
-|:---------|:------------|:---------|
-|agent_001 |van          |suburban  |
-|agent_002 |van          |suburban  |
-|agent_003 |ebike        |urban     |
-|agent_004 |scooter      |suburban  |
-|agent_005 |scooter      |urban     |
-|agent_006 |scooter      |suburban  |
+|entity_id   |vehicle_type |home_zone |
+|:-----------|:------------|:---------|
+|courier_001 |van          |suburban  |
+|courier_002 |van          |suburban  |
+|courier_003 |ebike        |urban     |
+|courier_004 |scooter      |suburban  |
+|courier_005 |scooter      |urban     |
+|courier_006 |scooter      |suburban  |
 
 
 
 
 ``` r
-head(ops$observations) |> kable(digits = 2)
+head(ops$battery) |> kable(digits = 2)
 ```
 
 
 
-|entity_id | time| battery_pct|
-|:---------|----:|-----------:|
-|agent_001 | 1.19|        96.9|
-|agent_001 | 1.36|        96.3|
-|agent_001 | 2.35|        91.2|
-|agent_001 | 2.59|        91.9|
-|agent_001 | 3.16|        91.3|
-|agent_001 | 5.76|        61.7|
+|entity_id   | time| battery_pct|
+|:-----------|----:|-----------:|
+|courier_001 | 1.19|        96.9|
+|courier_001 | 1.36|        96.3|
+|courier_001 | 2.35|        91.2|
+|courier_001 | 2.59|        91.9|
+|courier_001 | 3.16|        91.3|
+|courier_001 | 5.76|        61.7|
 
 
 
@@ -156,63 +156,67 @@ head(ops$events) |> kable(digits = 2)
 
 
 
-|entity_id | time|event_type         |
-|:---------|----:|:------------------|
-|agent_001 | 2.38|delivery_completed |
-|agent_001 | 3.45|delivery_completed |
-|agent_001 | 5.19|delivery_completed |
-|agent_001 | 5.66|delivery_completed |
-|agent_001 | 7.26|delivery_completed |
-|agent_001 | 7.45|delivery_completed |
+|entity_id   | time|event_type         |
+|:-----------|----:|:------------------|
+|courier_001 | 2.38|delivery_completed |
+|courier_001 | 3.45|delivery_completed |
+|courier_001 | 5.19|delivery_completed |
+|courier_001 | 5.66|delivery_completed |
+|courier_001 | 7.26|delivery_completed |
+|courier_001 | 7.45|delivery_completed |
 
 
 
 
 ``` r
-head(ops$followup) |> kable(digits = 2)
+head(ops$shifts) |> kable()
 ```
 
 
 
-|entity_id |shift_id          | followup_start| followup_end|
-|:---------|:-----------------|--------------:|------------:|
-|agent_001 |agent_001_shift_1 |              0|            8|
-|agent_001 |agent_001_shift_2 |             24|           32|
-|agent_001 |agent_001_shift_3 |             48|           56|
-|agent_001 |agent_001_shift_4 |             72|           80|
-|agent_001 |agent_001_shift_5 |             96|          104|
-|agent_001 |agent_001_shift_6 |            120|          128|
+|entity_id   |shift_id            |shift_start |shift_end           |
+|:-----------|:-------------------|:-----------|:-------------------|
+|courier_001 |courier_001_shift_1 |2026-01-05  |2026-01-05 08:00:00 |
+|courier_001 |courier_001_shift_2 |2026-01-06  |2026-01-06 08:00:00 |
+|courier_001 |courier_001_shift_3 |2026-01-07  |2026-01-07 08:00:00 |
+|courier_001 |courier_001_shift_4 |2026-01-08  |2026-01-08 08:00:00 |
+|courier_001 |courier_001_shift_5 |2026-01-09  |2026-01-09 08:00:00 |
+|courier_001 |courier_001_shift_6 |2026-01-10  |2026-01-10 08:00:00 |
 
 
 
-Notice that observations are in **long format** (entity_id × time × variable ×
+Notice that `battery` is in **long format** (entity_id × time × variable ×
 value). This is the canonical shape `fluxPrepare` expects for continuous
 measurements.
+
+The `shifts` table uses real `POSIXct` timestamps — the kind of data you'd
+get from a fleet management database. The `time_spec` we pass to fluxPrepare
+will convert these to model time (hours from origin) automatically.
 
 ## Entity-level splits
 
 The most important rule: **split by entity, not by time**. All shifts belonging
-to one agent go into the same split. This prevents information leakage — a model
-that has seen agent_003's Monday shift should not be evaluated on agent_003's
-Tuesday shift.
+to one courier go into the same split. This prevents information leakage — a
+model that has seen courier_003's Monday shift should not be evaluated on
+courier_003's Tuesday shift.
 
 
 ``` r
-splits <- generate_splits(ops$entities, train_frac = 0.6, test_frac = 0.2,
+splits <- generate_splits(ops$couriers, train_frac = 0.6, test_frac = 0.2,
                           seed = 123)
 head(splits) |> kable()
 ```
 
 
 
-|entity_id |split      |
-|:---------|:----------|
-|agent_001 |test       |
-|agent_002 |validation |
-|agent_003 |train      |
-|agent_004 |test       |
-|agent_005 |train      |
-|agent_006 |validation |
+|entity_id   |split      |
+|:-----------|:----------|
+|courier_001 |test       |
+|courier_002 |validation |
+|courier_003 |train      |
+|courier_004 |test       |
+|courier_005 |train      |
+|courier_006 |validation |
 
 
 
@@ -245,14 +249,14 @@ head(events_prep) |> kable(digits = 2)
 
 
 
-|entity_id | time|event_type         |source_table |
-|:---------|----:|:------------------|:------------|
-|agent_001 | 2.38|delivery_completed |NA           |
-|agent_001 | 3.45|delivery_completed |NA           |
-|agent_001 | 5.19|delivery_completed |NA           |
-|agent_001 | 5.66|delivery_completed |NA           |
-|agent_001 | 7.26|delivery_completed |NA           |
-|agent_001 | 7.45|delivery_completed |NA           |
+|entity_id   | time|event_type         |source_table |
+|:-----------|----:|:------------------|:------------|
+|courier_001 | 2.38|delivery_completed |NA           |
+|courier_001 | 3.45|delivery_completed |NA           |
+|courier_001 | 5.19|delivery_completed |NA           |
+|courier_001 | 5.66|delivery_completed |NA           |
+|courier_001 | 7.26|delivery_completed |NA           |
+|courier_001 | 7.45|delivery_completed |NA           |
 
 
 
@@ -276,7 +280,7 @@ battery_spec <- list(
 )
 
 obs_prep <- prepare_observations(
-  tables    = list(battery = ops$observations),
+  tables    = list(battery = ops$battery),
   specs     = list(battery = battery_spec),
   time_spec = time_spec(unit = "hours"),
   sort      = TRUE
@@ -287,14 +291,14 @@ head(obs_prep) |> kable(digits = 2)
 
 
 
-|entity_id | time|group   | battery_pct|source_table |
-|:---------|----:|:-------|-----------:|:------------|
-|agent_001 | 1.19|battery |        96.9|battery      |
-|agent_001 | 1.36|battery |        96.3|battery      |
-|agent_001 | 2.35|battery |        91.2|battery      |
-|agent_001 | 2.59|battery |        91.9|battery      |
-|agent_001 | 3.16|battery |        91.3|battery      |
-|agent_001 | 5.76|battery |        61.7|battery      |
+|entity_id   | time|group   | battery_pct|source_table |
+|:-----------|----:|:-------|-----------:|:------------|
+|courier_001 | 1.19|battery |        96.9|battery      |
+|courier_001 | 1.36|battery |        96.3|battery      |
+|courier_001 | 2.35|battery |        91.2|battery      |
+|courier_001 | 2.59|battery |        91.9|battery      |
+|courier_001 | 3.16|battery |        91.3|battery      |
+|courier_001 | 5.76|battery |        61.7|battery      |
 
 
 
@@ -315,7 +319,7 @@ splits_prep <- prepare_splits(
 
 str(splits_prep)
 #> Classes 'flux_splits' and 'data.frame':	30 obs. of  2 variables:
-#>  $ entity_id: chr  "agent_001" "agent_002" "agent_003" "agent_004" ...
+#>  $ entity_id: chr  "courier_001" "courier_002" "courier_003" "courier_004" ...
 #>  $ split    : chr  "test" "validation" "train" "test" ...
 #>  - attr(*, "allowed_splits")= chr [1:3] "train" "test" "validation"
 ```
@@ -326,11 +330,11 @@ one split assignment and that split labels are from the allowed set
 
 ## Building the TTV event process
 
-The core analytical question for Tutorial 05 (validation) is: **given an agent's
+The core analytical question for Tutorial 05 (validation) is: **given a courier's
 state at time t₀, what is the probability of a delivery completion within the
 next H hours?**
 
-To answer this, we need anchored intervals: for each agent in the test set,
+To answer this, we need anchored intervals: for each courier in the test set,
 define a start time (t₀), a horizon (H), and record whether the event actually
 happened. This is what `build_ttv_event_process()` constructs.
 
@@ -339,9 +343,11 @@ First, define a spec for the event process:
 
 ``` r
 delivery_ep_spec <- spec_event_process(
-  event_types = "delivery_completed",
-  name        = "delivery_completion",
-  t0_strategy = "followup_start"
+  event_types  = "delivery_completed",
+  name         = "delivery_completion",
+  t0_strategy  = "followup_start",
+  fu_start_col = "shift_start",
+  fu_end_col   = "shift_end"
 )
 ```
 
@@ -354,13 +360,13 @@ ttv <- build_ttv_event_process(
   observations = obs_prep,
   splits       = splits_prep,
   spec         = delivery_ep_spec,
-  followup     = ops$followup,
-  time_spec    = time_spec(unit = "hours")
+  followup     = ops$shifts,
+  time_spec    = time_spec(unit = "hours", origin = as.POSIXct("2026-01-05", tz = "UTC"))
 )
 
 str(ttv, max.level = 1)
 #> 'data.frame':	30 obs. of  8 variables:
-#>  $ entity_id     : chr  "agent_001" "agent_002" "agent_003" "agent_004" ...
+#>  $ entity_id     : chr  "courier_001" "courier_002" "courier_003" "courier_004" ...
 #>  $ split         : chr  "test" "validation" "train" "test" ...
 #>  $ t0            : num  0 0 0 0 0 0 0 0 0 0 ...
 #>  $ t1            : num  2.377 0.742 1.338 3.288 0.761 ...
@@ -385,14 +391,14 @@ head(ttv_test) |> kable(digits = 2)
 
 
 
-|   |entity_id |split | t0|   t1| deltat|event_occurred |event_type         | censoring_time|
-|:--|:---------|:-----|--:|----:|------:|:--------------|:------------------|--------------:|
-|1  |agent_001 |test  |  0| 2.38|   2.38|TRUE           |delivery_completed |              8|
-|4  |agent_004 |test  |  0| 3.29|   3.29|TRUE           |delivery_completed |              8|
-|17 |agent_017 |test  |  0| 2.33|   2.33|TRUE           |delivery_completed |              8|
-|21 |agent_021 |test  |  0| 2.34|   2.34|TRUE           |delivery_completed |              8|
-|23 |agent_023 |test  |  0| 0.77|   0.77|TRUE           |delivery_completed |              8|
-|25 |agent_025 |test  |  0| 0.87|   0.87|TRUE           |delivery_completed |              8|
+|   |entity_id   |split | t0|   t1| deltat|event_occurred |event_type         | censoring_time|
+|:--|:-----------|:-----|--:|----:|------:|:--------------|:------------------|--------------:|
+|1  |courier_001 |test  |  0| 2.38|   2.38|TRUE           |delivery_completed |              8|
+|4  |courier_004 |test  |  0| 3.29|   3.29|TRUE           |delivery_completed |              8|
+|17 |courier_017 |test  |  0| 2.33|   2.33|TRUE           |delivery_completed |              8|
+|21 |courier_021 |test  |  0| 2.34|   2.34|TRUE           |delivery_completed |              8|
+|23 |courier_023 |test  |  0| 0.77|   0.77|TRUE           |delivery_completed |              8|
+|25 |courier_025 |test  |  0| 0.87|   0.87|TRUE           |delivery_completed |              8|
 
 
 
@@ -409,7 +415,7 @@ Each row is one entity × one interval: `entity_id`, `t0` (anchor time),
 
 ## Reconstructing state at t₀
 
-To forecast from t₀, the model needs to know the agent's state *at that moment*.
+To forecast from t₀, the model needs to know the courier's state *at that moment*.
 `reconstruct_state_at()` looks backward through the observation history and
 recovers the most recent measurement of each variable prior to t₀.
 
@@ -429,18 +435,18 @@ head(state_at_t0) |> kable(digits = 2)
 
 
 
-|entity_id | t0|battery_pct | .time_battery_pct|.prov_battery_pct |
-|:---------|--:|:-----------|-----------------:|:-----------------|
-|agent_001 |  0|NA          |                NA|missing           |
-|agent_004 |  0|NA          |                NA|missing           |
-|agent_017 |  0|NA          |                NA|missing           |
-|agent_021 |  0|NA          |                NA|missing           |
-|agent_023 |  0|NA          |                NA|missing           |
-|agent_025 |  0|NA          |                NA|missing           |
+|entity_id   | t0|battery_pct | .time_battery_pct|.prov_battery_pct |
+|:-----------|--:|:-----------|-----------------:|:-----------------|
+|courier_001 |  0|NA          |                NA|missing           |
+|courier_004 |  0|NA          |                NA|missing           |
+|courier_017 |  0|NA          |                NA|missing           |
+|courier_021 |  0|NA          |                NA|missing           |
+|courier_023 |  0|NA          |                NA|missing           |
+|courier_025 |  0|NA          |                NA|missing           |
 
 
 
-Each row tells you: "for entity X at anchor time t₀, the last observed
+Each row tells you: "for courier X at anchor time t₀, the last observed
 battery_pct was Y." This is the starting state you feed to the Engine in
 Tutorial 05 when running forecasts from the test set.
 

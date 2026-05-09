@@ -24,7 +24,7 @@ until you've tested its predictions against held-out data, you don't know
 whether its rates, distributions, and state dynamics actually match reality.
 
 This tutorial closes the loop: we take the test-set intervals built in Tutorial
-05, forecast from each agent's reconstructed state, and compare predictions
+05, forecast from each courier's reconstructed state, and compare predictions
 against observed outcomes. By the end you will be able to:
 
 - reconstruct test-set entities at their forecast anchor times,
@@ -35,7 +35,7 @@ against observed outcomes. By the end you will be able to:
 
 ## Setup and data preparation
 
-We regenerate the same data pipeline from Tutorial 05. In practice you'd save
+We regenerate the same data pipeline from Tutorial 04. In practice you'd save
 the TTV to disk; here we re-run for self-containedness.
 
 ```{r}
@@ -43,9 +43,9 @@ source("tutorials/model/urban_delivery.R")
 source("tutorials/model/urban_delivery_data.R")
 
 set.seed(42)
-ops <- generate_delivery_log(n_agents = 30, n_shifts = 8)
+ops <- generate_delivery_log(n_couriers = 30, n_shifts = 8)
 
-splits <- generate_splits(ops$entities, train_frac = 0.6, test_frac = 0.2,
+splits <- generate_splits(ops$couriers, train_frac = 0.6, test_frac = 0.2,
                           seed = 123)
 
 events_prep <- prepare_events(
@@ -63,7 +63,7 @@ battery_spec <- list(
 )
 
 obs_prep <- prepare_observations(
-  tables    = list(battery = ops$observations),
+  tables    = list(battery = ops$battery),
   specs     = list(battery = battery_spec),
   time_spec = time_spec(unit = "hours")
 )
@@ -71,9 +71,11 @@ obs_prep <- prepare_observations(
 splits_prep <- prepare_splits(splits, id_col = "entity_id", split_col = "split")
 
 delivery_ep_spec <- spec_event_process(
-  event_types = "delivery_completed",
-  name        = "delivery_completion",
-  t0_strategy = "followup_start"
+  event_types  = "delivery_completed",
+  name         = "delivery_completion",
+  t0_strategy  = "followup_start",
+  fu_start_col = "shift_start",
+  fu_end_col   = "shift_end"
 )
 
 ttv <- build_ttv_event_process(
@@ -81,14 +83,14 @@ ttv <- build_ttv_event_process(
   observations = obs_prep,
   splits       = splits_prep,
   spec         = delivery_ep_spec,
-  followup     = ops$followup,
-  time_spec    = time_spec(unit = "hours")
+  followup     = ops$shifts,
+  time_spec    = time_spec(unit = "hours", origin = as.POSIXct("2026-01-05", tz = "UTC"))
 )
 ```
 
 ## The test set
 
-Each row in `ttv$test` represents one agent × one shift interval:
+Each row in `ttv$test` represents one courier × one shift interval:
 
 ```{r}
 head(ttv[ttv$split == "test", ])
@@ -96,14 +98,14 @@ cat("Test-set intervals:", sum(ttv$split == "test"), "\n")
 cat("Outcome rate:      ", round(mean(ttv$event_occurred[ttv$split == "test"]), 3), "\n")
 ```
 
-The `event_occurred` column is TRUE if the agent completed at least one delivery
+The `event_occurred` column is TRUE if the courier completed at least one delivery
 during the interval. The outcome rate tells us how "easy" the prediction
 task is — if it's close to 1.0, nearly everyone completes a delivery (which is
 expected for an 8-hour shift).
 
-## Reconstruct agent state at t₀
+## Reconstruct courier state at t₀
 
-For each test-set interval, we need the agent's state at the forecast anchor
+For each test-set interval, we need the courier's state at the forecast anchor
 time. `reconstruct_state_at()` pulls the last observed battery_pct before t₀:
 
 ```{r}
@@ -139,7 +141,7 @@ test_entities <- lapply(seq_len(nrow(state_at_t0)), function(i) {
       dispatch_mode = "idle"
     ),
     schema      = shared_schema,
-    entity_type = "delivery_agent",
+    entity_type = "courier",
     time0       = row$t0
   )
 })
@@ -245,7 +247,7 @@ conservative.
 
 ### Discrimination
 
-Discrimination asks: "can the model distinguish agents who will complete a
+Discrimination asks: "can the model distinguish couriers who will complete a
 delivery from those who won't?"
 
 ```{r}
@@ -306,7 +308,7 @@ model development cycle that flux supports.
 
 | Function | Purpose |
 |----------|---------|
-| `reconstruct_state_at()` | Recover agent state at forecast anchor from history |
+| `reconstruct_state_at()` | Recover courier state at forecast anchor from history |
 | `forecast()` | Run model forward from test-set baselines |
 | `event_prob()` | Predicted probability of named event by time *t* |
 | `build_obs_grid()` | Align observed events onto evaluation time grid |

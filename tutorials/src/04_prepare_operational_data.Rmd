@@ -30,7 +30,7 @@ that the forecast and validation tools expect. By the end you will be able to:
 - prepare observations and events into canonical format,
 - split by entity (no data leakage),
 - build a TTV event process (anchored intervals with outcomes),
-- reconstruct agent state at a forecast anchor time.
+- reconstruct courier state at a forecast anchor time.
 
 ## Why preparation is its own step
 
@@ -43,7 +43,7 @@ entities enter and exit follow-up.
 This distinction matters because real operational data lives on **multiple
 clocks simultaneously**. Battery readings arrive from irregular sensor pings.
 Delivery completions happen at unpredictable times. Shift boundaries are
-deterministic but vary per agent. Traditional tabular analyses often flatten
+deterministic but vary per courier. Traditional tabular analyses often flatten
 this complexity by imposing an implicit time grid or silently carrying forward
 stale values — choices that encode assumptions whether or not we acknowledge
 them.
@@ -57,7 +57,7 @@ assumptions are specified.
 - **Anchors** are the time points at which entity state is reconstructed.
   Rather than imposing a regular grid (e.g., hourly snapshots), anchors can be
   defined at clinically or operationally meaningful moments — event
-  occurrences, measurement arrivals, or shift starts. This keeps training data
+  occurrences, measurement arrivals, decision points, or shift starts. This keeps training data
   aligned with the structure the simulation enforces.
 
 - **Intervals** are the spans between consecutive anchors. Each interval has a
@@ -71,7 +71,7 @@ assumptions are specified.
   validity rules (`lookback`, `staleness`). This avoids leaking future
   information into training rows.
 
-- **Follow-up ≠ alive.** An agent may be alive but no longer observed (e.g.,
+- **Follow-up ≠ alive.** An entity may be active but no longer observed (e.g.,
   went off-shift, left the fleet). After follow-up ends, state is undefined.
   This distinction is essential for correct denominators in both model
   development and downstream validation.
@@ -105,31 +105,31 @@ a realistic fleet log — the kind of data you'd get from a production system:
 ```{r}
 set.seed(42)
 ops <- generate_delivery_log(
-  n_agents = 30,
-  n_shifts = 8,
-  params   = list(shift_length_hours = 8)
+  n_couriers = 30,
+  n_shifts   = 8,
+  params     = list(shift_length_hours = 8)
 )
 ```
 
-The result has four components:
+The result has four tables:
 
 ```{r}
 str(ops, max.level = 1)
 ```
 
-- **`$entities`** — one row per agent: id, vehicle type, home zone.
-- **`$observations`** — irregular battery readings (sensor pings).
+- **`$couriers`** — one row per courier: id, vehicle type, home zone.
+- **`$battery`** — irregular battery readings (sensor pings).
 - **`$events`** — delivery completion timestamps.
-- **`$followup`** — shift-level follow-up windows.
+- **`$shifts`** — shift-level follow-up windows, with real `POSIXct` timestamps.
 
 Let's look at each:
 
 ```{r}
-head(ops$entities) |> kable()
+head(ops$couriers) |> kable()
 ```
 
 ```{r}
-head(ops$observations) |> kable(digits = 2)
+head(ops$battery) |> kable(digits = 2)
 ```
 
 ```{r}
@@ -137,22 +137,26 @@ head(ops$events) |> kable(digits = 2)
 ```
 
 ```{r}
-head(ops$followup) |> kable(digits = 2)
+head(ops$shifts) |> kable()
 ```
 
-Notice that observations are in **long format** (entity_id × time × variable ×
+Notice that `battery` is in **long format** (entity_id × time × variable ×
 value). This is the canonical shape `fluxPrepare` expects for continuous
 measurements.
+
+The `shifts` table uses real `POSIXct` timestamps — the kind of data you'd
+get from a fleet management database. The `time_spec` we pass to fluxPrepare
+will convert these to model time (hours from origin) automatically.
 
 ## Entity-level splits
 
 The most important rule: **split by entity, not by time**. All shifts belonging
-to one agent go into the same split. This prevents information leakage — a model
-that has seen agent_003's Monday shift should not be evaluated on agent_003's
-Tuesday shift.
+to one courier go into the same split. This prevents information leakage — a
+model that has seen courier_003's Monday shift should not be evaluated on
+courier_003's Tuesday shift.
 
 ```{r}
-splits <- generate_splits(ops$entities, train_frac = 0.6, test_frac = 0.2,
+splits <- generate_splits(ops$couriers, train_frac = 0.6, test_frac = 0.2,
                           seed = 123)
 head(splits) |> kable()
 ```
@@ -194,7 +198,7 @@ battery_spec <- list(
 )
 
 obs_prep <- prepare_observations(
-  tables    = list(battery = ops$observations),
+  tables    = list(battery = ops$battery),
   specs     = list(battery = battery_spec),
   time_spec = time_spec(unit = "hours"),
   sort      = TRUE
@@ -222,11 +226,11 @@ one split assignment and that split labels are from the allowed set
 
 ## Building the TTV event process
 
-The core analytical question for Tutorial 05 (validation) is: **given an agent's
+The core analytical question for Tutorial 05 (validation) is: **given a courier's
 state at time t₀, what is the probability of a delivery completion within the
 next H hours?**
 
-To answer this, we need anchored intervals: for each agent in the test set,
+To answer this, we need anchored intervals: for each courier in the test set,
 define a start time (t₀), a horizon (H), and record whether the event actually
 happened. This is what `build_ttv_event_process()` constructs.
 
@@ -234,9 +238,11 @@ First, define a spec for the event process:
 
 ```{r}
 delivery_ep_spec <- spec_event_process(
-  event_types = "delivery_completed",
-  name        = "delivery_completion",
-  t0_strategy = "followup_start"
+  event_types  = "delivery_completed",
+  name         = "delivery_completion",
+  t0_strategy  = "followup_start",
+  fu_start_col = "shift_start",
+  fu_end_col   = "shift_end"
 )
 ```
 
@@ -248,8 +254,8 @@ ttv <- build_ttv_event_process(
   observations = obs_prep,
   splits       = splits_prep,
   spec         = delivery_ep_spec,
-  followup     = ops$followup,
-  time_spec    = time_spec(unit = "hours")
+  followup     = ops$shifts,
+  time_spec    = time_spec(unit = "hours", origin = as.POSIXct("2026-01-05", tz = "UTC"))
 )
 
 str(ttv, max.level = 1)
@@ -272,7 +278,7 @@ Each row is one entity × one interval: `entity_id`, `t0` (anchor time),
 
 ## Reconstructing state at t₀
 
-To forecast from t₀, the model needs to know the agent's state *at that moment*.
+To forecast from t₀, the model needs to know the courier's state *at that moment*.
 `reconstruct_state_at()` looks backward through the observation history and
 recovers the most recent measurement of each variable prior to t₀.
 
@@ -289,7 +295,7 @@ state_at_t0 <- reconstruct_state_at(
 head(state_at_t0) |> kable(digits = 2)
 ```
 
-Each row tells you: "for entity X at anchor time t₀, the last observed
+Each row tells you: "for courier X at anchor time t₀, the last observed
 battery_pct was Y." This is the starting state you feed to the Engine in
 Tutorial 05 when running forecasts from the test set.
 

@@ -3,19 +3,19 @@
 # ==============================================================================
 #
 # Generates a realistic synthetic operational log for a delivery fleet.
-# Produces the raw data that fluxPrepare ingests in Tutorial 05.
+# Produces the raw data that fluxPrepare ingests in Tutorial 04.
 #
 # Output: a list with four data frames:
-#   $entities     - agent registry (entity_id, vehicle_type, home_zone)
-#   $observations - irregular battery readings (entity_id, time, battery_pct)
-#   $events       - delivery completion events (entity_id, time, event_type)
-#   $followup     - shift-level follow-up windows (entity_id, shift_id,
-#                   followup_start, followup_end)
+#   $couriers  - courier registry (entity_id, vehicle_type, home_zone)
+#   $battery   - irregular battery readings (entity_id, time, battery_pct)
+#   $events    - delivery completion events (entity_id, time, event_type)
+#   $shifts    - shift-level follow-up windows (entity_id, shift_id,
+#                shift_start, shift_end) — POSIXct timestamps
 #
 # Usage:
 #   source("tutorials/model/urban_delivery_data.R")
 #   set.seed(42)
-#   ops <- generate_delivery_log(n_agents = 50, n_shifts = 10)
+#   ops <- generate_delivery_log(n_couriers = 50, n_shifts = 10)
 #
 # No dependencies beyond base R and fluxCore (for Entity + Engine).
 # ==============================================================================
@@ -23,22 +23,25 @@
 
 #' Generate a synthetic delivery fleet operational log.
 #'
-#' @param n_agents   Number of delivery agents in the fleet.
-#' @param n_shifts   Number of shifts to simulate per agent.
+#' @param n_couriers Number of delivery couriers in the fleet.
+#' @param n_shifts   Number of shifts to simulate per courier.
 #' @param params     Optional list of delivery model parameters (passed to
 #'                   delivery_bundle). Use this to vary fleet behavior.
 #' @param shift_gap  Hours between shifts (rest period). Default 16.
 #' @param obs_rate   Mean battery observations per hour (Poisson process for
 #'                   sensor pings). Default 2.
+#' @param fleet_origin POSIXct timestamp for the fleet's first shift start.
+#'                   Default is midnight UTC on 2026-01-05.
 #' @param seed       Optional seed for full reproducibility. If NULL, uses
 #'                   current RNG state.
 #'
-#' @return A list with components: entities, observations, events, followup.
-generate_delivery_log <- function(n_agents = 50,
+#' @return A list with components: couriers, battery, events, shifts.
+generate_delivery_log <- function(n_couriers = 50,
                                   n_shifts = 10,
                                   params = list(),
                                   shift_gap = 16,
                                   obs_rate = 2,
+                                  fleet_origin = as.POSIXct("2026-01-05 00:00:00", tz = "UTC"),
                                   seed = NULL) {
 
   if (!is.null(seed)) set.seed(seed)
@@ -50,16 +53,16 @@ generate_delivery_log <- function(n_agents = 50,
          call. = FALSE)
   }
 
-  # -- Agent registry --
+  # -- Courier registry --
   vehicle_types <- c("ebike", "scooter", "van")
   vehicle_probs <- c(0.50, 0.35, 0.15)
   zones         <- c("urban", "suburban", "rural")
   zone_probs    <- c(0.55, 0.30, 0.15)
 
-  entities <- data.frame(
-    entity_id    = paste0("agent_", sprintf("%03d", seq_len(n_agents))),
-    vehicle_type = sample(vehicle_types, n_agents, replace = TRUE, prob = vehicle_probs),
-    home_zone    = sample(zones, n_agents, replace = TRUE, prob = zone_probs),
+  couriers <- data.frame(
+    entity_id    = paste0("courier_", sprintf("%03d", seq_len(n_couriers))),
+    vehicle_type = sample(vehicle_types, n_couriers, replace = TRUE, prob = vehicle_probs),
+    home_zone    = sample(zones, n_couriers, replace = TRUE, prob = zone_probs),
     stringsAsFactors = FALSE
   )
 
@@ -74,14 +77,14 @@ generate_delivery_log <- function(n_agents = 50,
     8
   }
 
-  all_obs    <- vector("list", n_agents * n_shifts)
-  all_events <- vector("list", n_agents * n_shifts)
-  all_fu     <- vector("list", n_agents * n_shifts)
+  all_obs    <- vector("list", n_couriers * n_shifts)
+  all_events <- vector("list", n_couriers * n_shifts)
+  all_fu     <- vector("list", n_couriers * n_shifts)
   idx        <- 0L
 
-  for (i in seq_len(n_agents)) {
-    agent_id <- entities$entity_id[i]
-    zone     <- entities$home_zone[i]
+  for (i in seq_len(n_couriers)) {
+    courier_id <- couriers$entity_id[i]
+    zone       <- couriers$home_zone[i]
 
     for (s in seq_len(n_shifts)) {
       idx <- idx + 1L
@@ -100,7 +103,7 @@ generate_delivery_log <- function(n_agents = 50,
           dispatch_mode = "idle"
         ),
         schema      = schema,
-        entity_type = "delivery_agent",
+        entity_type = "courier",
         time0       = shift_start
       )
 
@@ -113,7 +116,7 @@ generate_delivery_log <- function(n_agents = 50,
         delivery_rows <- ev[ev$event_type == "delivery_completed", , drop = FALSE]
         if (nrow(delivery_rows) > 0L) {
           all_events[[idx]] <- data.frame(
-            entity_id  = agent_id,
+            entity_id  = courier_id,
             time       = delivery_rows$time,
             event_type = "delivery_completed",
             stringsAsFactors = FALSE
@@ -143,7 +146,7 @@ generate_delivery_log <- function(n_agents = 50,
         battery_values <- pmax(0, pmin(100, battery_values + stats::rnorm(n_pings, 0, 0.5)))
 
         all_obs[[idx]] <- data.frame(
-          entity_id   = agent_id,
+          entity_id   = courier_id,
           time        = ping_times,
           battery_pct = round(battery_values, 1),
           stringsAsFactors = FALSE
@@ -158,52 +161,52 @@ generate_delivery_log <- function(n_agents = 50,
       }
 
       all_fu[[idx]] <- data.frame(
-        entity_id      = agent_id,
-        shift_id       = paste0(agent_id, "_shift_", s),
-        followup_start = shift_start,
-        followup_end   = shift_end_actual,
+        entity_id   = courier_id,
+        shift_id    = paste0(courier_id, "_shift_", s),
+        shift_start = fleet_origin + shift_start * 3600,
+        shift_end   = fleet_origin + shift_end_actual * 3600,
         stringsAsFactors = FALSE
       )
     }
   }
 
   # -- Combine --
-  observations <- do.call(rbind, Filter(Negate(is.null), all_obs))
-  events       <- do.call(rbind, Filter(Negate(is.null), all_events))
-  followup     <- do.call(rbind, Filter(Negate(is.null), all_fu))
+  battery  <- do.call(rbind, Filter(Negate(is.null), all_obs))
+  events   <- do.call(rbind, Filter(Negate(is.null), all_events))
+  shifts   <- do.call(rbind, Filter(Negate(is.null), all_fu))
 
-  rownames(observations) <- NULL
-  rownames(events)       <- NULL
-  rownames(followup)     <- NULL
+  rownames(battery) <- NULL
+  rownames(events)  <- NULL
+  rownames(shifts)  <- NULL
 
   list(
-    entities     = entities,
-    observations = observations,
-    events       = events,
-    followup     = followup
+    couriers = couriers,
+    battery  = battery,
+    events   = events,
+    shifts   = shifts
   )
 }
 
 
-#' Create train/test/validation splits for a set of agents.
+#' Create train/test/validation splits for a set of couriers.
 #'
-#' Splits agents (not shifts) into groups. All shifts for a given agent
-#' belong to the same split — no data leakage across agents.
+#' Splits couriers (not shifts) into groups. All shifts for a given courier
+#' belong to the same split — no data leakage across couriers.
 #'
-#' @param entities   Data frame with an entity_id column.
-#' @param train_frac Fraction of agents in training set. Default 0.6.
+#' @param couriers   Data frame with an entity_id column.
+#' @param train_frac Fraction of couriers in training set. Default 0.6.
 #' @param test_frac  Fraction in test set. Default 0.2. Remainder is validation.
 #' @param seed       Optional seed for split assignment.
 #'
 #' @return Data frame with entity_id and split columns.
-generate_splits <- function(entities,
+generate_splits <- function(couriers,
                             train_frac = 0.6,
                             test_frac = 0.2,
                             seed = NULL) {
   if (!is.null(seed)) set.seed(seed)
 
-  n <- nrow(entities)
-  ids <- entities$entity_id
+  n <- nrow(couriers)
+  ids <- couriers$entity_id
 
   # Shuffle
 

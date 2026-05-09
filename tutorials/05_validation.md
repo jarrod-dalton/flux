@@ -4,7 +4,7 @@ until you've tested its predictions against held-out data, you don't know
 whether its rates, distributions, and state dynamics actually match reality.
 
 This tutorial closes the loop: we take the test-set intervals built in Tutorial
-05, forecast from each agent's reconstructed state, and compare predictions
+05, forecast from each courier's reconstructed state, and compare predictions
 against observed outcomes. By the end you will be able to:
 
 - reconstruct test-set entities at their forecast anchor times,
@@ -15,7 +15,7 @@ against observed outcomes. By the end you will be able to:
 
 ## Setup and data preparation
 
-We regenerate the same data pipeline from Tutorial 05. In practice you'd save
+We regenerate the same data pipeline from Tutorial 04. In practice you'd save
 the TTV to disk; here we re-run for self-containedness.
 
 
@@ -24,9 +24,9 @@ source("tutorials/model/urban_delivery.R")
 source("tutorials/model/urban_delivery_data.R")
 
 set.seed(42)
-ops <- generate_delivery_log(n_agents = 30, n_shifts = 8)
+ops <- generate_delivery_log(n_couriers = 30, n_shifts = 8)
 
-splits <- generate_splits(ops$entities, train_frac = 0.6, test_frac = 0.2,
+splits <- generate_splits(ops$couriers, train_frac = 0.6, test_frac = 0.2,
                           seed = 123)
 
 events_prep <- prepare_events(
@@ -44,7 +44,7 @@ battery_spec <- list(
 )
 
 obs_prep <- prepare_observations(
-  tables    = list(battery = ops$observations),
+  tables    = list(battery = ops$battery),
   specs     = list(battery = battery_spec),
   time_spec = time_spec(unit = "hours")
 )
@@ -52,9 +52,11 @@ obs_prep <- prepare_observations(
 splits_prep <- prepare_splits(splits, id_col = "entity_id", split_col = "split")
 
 delivery_ep_spec <- spec_event_process(
-  event_types = "delivery_completed",
-  name        = "delivery_completion",
-  t0_strategy = "followup_start"
+  event_types  = "delivery_completed",
+  name         = "delivery_completion",
+  t0_strategy  = "followup_start",
+  fu_start_col = "shift_start",
+  fu_end_col   = "shift_end"
 )
 
 ttv <- build_ttv_event_process(
@@ -62,25 +64,25 @@ ttv <- build_ttv_event_process(
   observations = obs_prep,
   splits       = splits_prep,
   spec         = delivery_ep_spec,
-  followup     = ops$followup,
-  time_spec    = time_spec(unit = "hours")
+  followup     = ops$shifts,
+  time_spec    = time_spec(unit = "hours", origin = as.POSIXct("2026-01-05", tz = "UTC"))
 )
 ```
 
 ## The test set
 
-Each row in `ttv$test` represents one agent × one shift interval:
+Each row in `ttv$test` represents one courier × one shift interval:
 
 
 ``` r
 head(ttv[ttv$split == "test", ])
-#>    entity_id split t0        t1    deltat event_occurred         event_type
-#> 1  agent_001  test  0 2.3768432 2.3768432           TRUE delivery_completed
-#> 4  agent_004  test  0 3.2884482 3.2884482           TRUE delivery_completed
-#> 17 agent_017  test  0 2.3255248 2.3255248           TRUE delivery_completed
-#> 21 agent_021  test  0 2.3429078 2.3429078           TRUE delivery_completed
-#> 23 agent_023  test  0 0.7654377 0.7654377           TRUE delivery_completed
-#> 25 agent_025  test  0 0.8656996 0.8656996           TRUE delivery_completed
+#>      entity_id split t0        t1    deltat event_occurred         event_type
+#> 1  courier_001  test  0 2.3768432 2.3768432           TRUE delivery_completed
+#> 4  courier_004  test  0 3.2884482 3.2884482           TRUE delivery_completed
+#> 17 courier_017  test  0 2.3255248 2.3255248           TRUE delivery_completed
+#> 21 courier_021  test  0 2.3429078 2.3429078           TRUE delivery_completed
+#> 23 courier_023  test  0 0.7654377 0.7654377           TRUE delivery_completed
+#> 25 courier_025  test  0 0.8656996 0.8656996           TRUE delivery_completed
 #>    censoring_time
 #> 1               8
 #> 4               8
@@ -94,14 +96,14 @@ cat("Outcome rate:      ", round(mean(ttv$event_occurred[ttv$split == "test"]), 
 #> Outcome rate:       1
 ```
 
-The `event_occurred` column is TRUE if the agent completed at least one delivery
+The `event_occurred` column is TRUE if the courier completed at least one delivery
 during the interval. The outcome rate tells us how "easy" the prediction
 task is — if it's close to 1.0, nearly everyone completes a delivery (which is
 expected for an 8-hour shift).
 
-## Reconstruct agent state at t₀
+## Reconstruct courier state at t₀
 
-For each test-set interval, we need the agent's state at the forecast anchor
+For each test-set interval, we need the courier's state at the forecast anchor
 time. `reconstruct_state_at()` pulls the last observed battery_pct before t₀:
 
 
@@ -118,13 +120,13 @@ state_at_t0 <- reconstruct_state_at(
 )
 
 head(state_at_t0)
-#>   entity_id t0 battery_pct .time_battery_pct .prov_battery_pct
-#> 1 agent_001  0          NA                NA           missing
-#> 2 agent_004  0          NA                NA           missing
-#> 3 agent_017  0          NA                NA           missing
-#> 4 agent_021  0          NA                NA           missing
-#> 5 agent_023  0          NA                NA           missing
-#> 6 agent_025  0          NA                NA           missing
+#>     entity_id t0 battery_pct .time_battery_pct .prov_battery_pct
+#> 1 courier_001  0          NA                NA           missing
+#> 2 courier_004  0          NA                NA           missing
+#> 3 courier_017  0          NA                NA           missing
+#> 4 courier_021  0          NA                NA           missing
+#> 5 courier_023  0          NA                NA           missing
+#> 6 courier_025  0          NA                NA           missing
 ```
 
 Now build Entity objects from these reconstructed states:
@@ -146,7 +148,7 @@ test_entities <- lapply(seq_len(nrow(state_at_t0)), function(i) {
       dispatch_mode = "idle"
     ),
     schema      = shared_schema,
-    entity_type = "delivery_agent",
+    entity_type = "courier",
     time0       = row$t0
   )
 })
@@ -247,14 +249,14 @@ head(ep)
 #> 
 #> $result
 #>   time n_eligible n_events event_prob
-#> 1    1        600      183  0.3050000
-#> 2    2        600      359  0.5983333
-#> 3    3        600      483  0.8050000
-#> 4    4        600      547  0.9116667
-#> 5    5        600      576  0.9600000
-#> 6    6        600      592  0.9866667
-#> 7    7        600      598  0.9966667
-#> 8    8        600      599  0.9983333
+#> 1    1        600      176  0.2933333
+#> 2    2        600      370  0.6166667
+#> 3    3        600      484  0.8066667
+#> 4    4        600      546  0.9100000
+#> 5    5        600      571  0.9516667
+#> 6    6        600      588  0.9800000
+#> 7    7        600      597  0.9950000
+#> 8    8        600      598  0.9966667
 #> 
 #> $meta
 #> list()
@@ -338,7 +340,7 @@ conservative.
 
 ### Discrimination
 
-Discrimination asks: "can the model distinguish agents who will complete a
+Discrimination asks: "can the model distinguish couriers who will complete a
 delivery from those who won't?"
 
 
@@ -404,7 +406,7 @@ model development cycle that flux supports.
 
 | Function | Purpose |
 |----------|---------|
-| `reconstruct_state_at()` | Recover agent state at forecast anchor from history |
+| `reconstruct_state_at()` | Recover courier state at forecast anchor from history |
 | `forecast()` | Run model forward from test-set baselines |
 | `event_prob()` | Predicted probability of named event by time *t* |
 | `build_obs_grid()` | Align observed events onto evaluation time grid |
