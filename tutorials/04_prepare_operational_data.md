@@ -101,15 +101,15 @@ The result has five tables:
 str(ops, max.level = 1)
 #> List of 5
 #>  $ couriers:'data.frame':	30 obs. of  3 variables:
-#>  $ battery :'data.frame':	3806 obs. of  3 variables:
-#>  $ weather :'data.frame':	579 obs. of  5 variables:
-#>  $ events  :'data.frame':	1360 obs. of  3 variables:
+#>  $ battery :'data.frame':	3842 obs. of  3 variables:
+#>  $ gps     :'data.frame':	5676 obs. of  5 variables:
+#>  $ events  :'data.frame':	1428 obs. of  3 variables:
 #>  $ shifts  :'data.frame':	240 obs. of  4 variables:
 ```
 
 - **`$couriers`** — one row per courier: id, vehicle type, home zone.
 - **`$battery`** — irregular battery readings (sensor pings per courier).
-- **`$weather`** — hourly weather observations from zone-level stations.
+- **`$gps`** — GPS location pings (from the vehicle tracking system).
 - **`$events`** — delivery completion timestamps.
 - **`$shifts`** — shift-level follow-up windows, with real `POSIXct` timestamps.
 
@@ -153,19 +153,19 @@ head(ops$battery) |> kable(digits = 1)
 
 
 ``` r
-head(ops$weather) |> kable(digits = 1)
+head(ops$gps) |> kable(digits = 2)
 ```
 
 
 
-|station_id |recorded_at         | temp_c| wind_kph| humidity_pct|
-|:----------|:-------------------|------:|--------:|------------:|
-|WX_urban   |2026-01-05 06:00:00 |   15.1|      7.0|         72.5|
-|WX_urban   |2026-01-05 07:00:00 |   15.6|     21.8|         66.9|
-|WX_urban   |2026-01-05 08:00:00 |   16.8|     16.6|         35.7|
-|WX_urban   |2026-01-05 09:00:00 |   18.9|     15.6|         47.3|
-|WX_urban   |2026-01-05 10:00:00 |   18.4|     10.8|         55.1|
-|WX_urban   |2026-01-05 11:00:00 |   20.6|     25.4|         73.2|
+|vehicle_id  |ping_at             |   lat|    lon| speed_kmh|
+|:-----------|:-------------------|-----:|------:|---------:|
+|courier_001 |2026-01-05 06:25:30 | 40.82| -73.88|      28.3|
+|courier_001 |2026-01-05 06:34:40 | 40.82| -73.88|      16.6|
+|courier_001 |2026-01-05 06:53:54 | 40.82| -73.88|       9.4|
+|courier_001 |2026-01-05 07:01:51 | 40.82| -73.88|      19.3|
+|courier_001 |2026-01-05 07:01:57 | 40.82| -73.88|      15.1|
+|courier_001 |2026-01-05 07:03:59 | 40.82| -73.88|      22.7|
 
 
 
@@ -205,10 +205,10 @@ head(ops$shifts) |> kable()
 
 
 
-Notice that `battery` and `weather` come from different systems and use
-different column names: battery has `entity_id` and `time`, while weather has
-`station_id` and `recorded_at`. This is typical of real operational data —
-each source has its own schema.
+Notice that `battery` and `gps` come from different systems and use different
+column names: battery has `entity_id` and `time`, while GPS has `vehicle_id`
+and `ping_at`. This is typical of real operational data — each source has its
+own schema.
 
 The `shifts` table uses real `POSIXct` timestamps — the kind of data you'd
 get from a fleet management database. The `time_spec` we pass to fluxPrepare
@@ -291,7 +291,7 @@ head(events_prep) |> kable(digits = 2)
 
 ``` r
 cat("Total rows:", nrow(events_prep), "\n")
-#> Total rows: 1360
+#> Total rows: 1428
 ```
 
 The `time` column is now numeric hours from `origin`. If we had omitted the
@@ -306,16 +306,16 @@ cancellations from another), each row records which source it came from.
 ## `prepare_observations()` — canonical observation format
 
 Observations follow the same time conversion, but add a second concept: **specs**.
-Our fleet has two observation sources — battery readings and weather stations —
-and they use completely different column names:
+Our fleet has two observation sources — battery readings and GPS pings — both
+per-courier, but from different tracking systems with different column names:
 
 | Source | ID column | Time column | Measurement columns |
 |--------|-----------|-------------|---------------------|
 | `battery` | `entity_id` | `time` | `battery_pct` |
-| `weather` | `station_id` | `recorded_at` | `temp_c`, `wind_kph`, `humidity_pct` |
+| `gps` | `vehicle_id` | `ping_at` | `lat`, `lon`, `speed_kmh` |
 
 A **spec** is a small list that tells `prepare_observations()` how to map each
-source's columns into the canonical format:
+source's columns into the canonical format (`entity_id`, `time`, variables):
 
 
 ``` r
@@ -325,70 +325,58 @@ battery_spec <- list(
   vars     = "battery_pct"
 )
 
-weather_spec <- list(
-  id_col   = "station_id",
-  time_col = "recorded_at",
-  vars     = c("temp_c", "wind_kph", "humidity_pct")
+gps_spec <- list(
+  id_col   = "vehicle_id",
+  time_col = "ping_at",
+  vars     = c("lat", "lon", "speed_kmh")
 )
 ```
 
-Now pass both tables and their specs together. `prepare_observations()` renames
-columns to canonical form, converts `POSIXct` → numeric model time, and
-row-binds everything into a single data frame. Variables that don't exist in a
-given source get `NA` (battery rows have no `temp_c`; weather rows have no
-`battery_pct`):
+Pass both tables and their specs together. `prepare_observations()` renames
+each source's columns to canonical form, converts `POSIXct` → numeric model
+time, and row-binds everything. Variables that don't exist in a given source
+get `NA` (battery rows have no `lat`; GPS rows have no `battery_pct`):
 
 
 ``` r
 obs_prep <- prepare_observations(
-  tables    = list(battery = ops$battery, weather = ops$weather),
-  specs     = list(battery = battery_spec, weather = weather_spec),
+  tables    = list(battery = ops$battery, gps = ops$gps),
+  specs     = list(battery = battery_spec, gps = gps_spec),
   time_spec = ts,
   sort      = TRUE
 )
 
-head(obs_prep) |> kable(digits = 2)
+# One courier's combined timeline: battery + GPS interleaved
+obs_prep[obs_prep$entity_id == "courier_001", ] |> head(10) |> kable(digits = 2)
 ```
 
 
 
-|entity_id   | time|group   | battery_pct| temp_c| wind_kph| humidity_pct|source_table |
-|:-----------|----:|:-------|-----------:|------:|--------:|------------:|:------------|
-|courier_001 | 1.19|battery |        96.9|     NA|       NA|           NA|battery      |
-|courier_001 | 1.36|battery |        96.3|     NA|       NA|           NA|battery      |
-|courier_001 | 2.35|battery |        91.2|     NA|       NA|           NA|battery      |
-|courier_001 | 2.59|battery |        91.9|     NA|       NA|           NA|battery      |
-|courier_001 | 3.16|battery |        91.3|     NA|       NA|           NA|battery      |
-|courier_001 | 5.76|battery |        61.7|     NA|       NA|           NA|battery      |
-
-
-
-``` r
-tail(obs_prep) |> kable(digits = 2)
-```
-
-
-
-|     |entity_id | time|group   | battery_pct| temp_c| wind_kph| humidity_pct|source_table |
-|:----|:---------|----:|:-------|-----------:|------:|--------:|------------:|:------------|
-|4380 |WX_urban  |  187|weather |          NA|   21.2|      9.8|         83.8|weather      |
-|4381 |WX_urban  |  188|weather |          NA|   19.2|     19.1|         66.6|weather      |
-|4382 |WX_urban  |  189|weather |          NA|   17.3|     15.6|         65.9|weather      |
-|4383 |WX_urban  |  190|weather |          NA|   19.9|      5.9|         45.6|weather      |
-|4384 |WX_urban  |  191|weather |          NA|   15.9|     15.7|         72.8|weather      |
-|4385 |WX_urban  |  192|weather |          NA|   17.0|     13.3|         43.6|weather      |
+|entity_id   | time|group   | battery_pct|   lat|    lon| speed_kmh|source_table |
+|:-----------|----:|:-------|-----------:|-----:|------:|---------:|:------------|
+|courier_001 | 0.43|gps     |          NA| 40.82| -73.88|      28.3|gps          |
+|courier_001 | 0.58|gps     |          NA| 40.82| -73.88|      16.6|gps          |
+|courier_001 | 0.90|gps     |          NA| 40.82| -73.88|       9.4|gps          |
+|courier_001 | 1.03|gps     |          NA| 40.82| -73.88|      19.3|gps          |
+|courier_001 | 1.03|gps     |          NA| 40.82| -73.88|      15.1|gps          |
+|courier_001 | 1.07|gps     |          NA| 40.82| -73.88|      22.7|gps          |
+|courier_001 | 1.19|battery |        96.9|    NA|     NA|        NA|battery      |
+|courier_001 | 1.26|gps     |          NA| 40.82| -73.88|      29.5|gps          |
+|courier_001 | 1.36|battery |        96.3|    NA|     NA|        NA|battery      |
+|courier_001 | 1.56|gps     |          NA| 40.82| -73.88|      10.1|gps          |
 
 
 
 ``` r
 cat("Total rows:", nrow(obs_prep), "\n")
-#> Total rows: 4385
+#> Total rows: 9518
 cat("Sources:   ", paste(unique(obs_prep$source_table), collapse = ", "), "\n")
-#> Sources:    battery, weather
+#> Sources:    gps, battery
 ```
 
-The `source_table` column tracks provenance — you can always filter back to a
-single source if needed. The `group` column carries the same label by default.
+The output is sorted by `entity_id` then `time`, so battery and GPS records for
+the same courier are interleaved chronologically. The `source_table` column
+tracks provenance — you can always filter back to a single source if needed.
 
 ## `prepare_splits()` — validate the split table
 
@@ -452,8 +440,8 @@ str(ttv, max.level = 1)
 #>  $ entity_id     : chr  "courier_001" "courier_002" "courier_003" "courier_004" ...
 #>  $ split         : chr  "test" "validation" "train" "test" ...
 #>  $ t0            : num  0 0 0 0 0 0 0 0 0 0 ...
-#>  $ t1            : num  2.377 0.742 1.338 3.288 0.761 ...
-#>  $ deltat        : num  2.377 0.742 1.338 3.288 0.761 ...
+#>  $ t1            : num  2.377 0.843 2.447 1.131 1.911 ...
+#>  $ deltat        : num  2.377 0.843 2.447 1.131 1.911 ...
 #>  $ event_occurred: logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
 #>  $ event_type    : chr  "delivery_completed" "delivery_completed" "delivery_completed" "delivery_completed" ...
 #>  $ censoring_time: num  8 8 8 8 8 8 8 8 8 8 ...
@@ -477,11 +465,11 @@ head(ttv_test) |> kable(digits = 2)
 |   |entity_id   |split | t0|   t1| deltat|event_occurred |event_type         | censoring_time|
 |:--|:-----------|:-----|--:|----:|------:|:--------------|:------------------|--------------:|
 |1  |courier_001 |test  |  0| 2.38|   2.38|TRUE           |delivery_completed |              8|
-|4  |courier_004 |test  |  0| 3.29|   3.29|TRUE           |delivery_completed |              8|
-|17 |courier_017 |test  |  0| 2.33|   2.33|TRUE           |delivery_completed |              8|
-|21 |courier_021 |test  |  0| 2.34|   2.34|TRUE           |delivery_completed |              8|
-|23 |courier_023 |test  |  0| 0.77|   0.77|TRUE           |delivery_completed |              8|
-|25 |courier_025 |test  |  0| 0.87|   0.87|TRUE           |delivery_completed |              8|
+|4  |courier_004 |test  |  0| 1.13|   1.13|TRUE           |delivery_completed |              8|
+|17 |courier_017 |test  |  0| 0.69|   0.69|TRUE           |delivery_completed |              8|
+|21 |courier_021 |test  |  0| 1.33|   1.33|TRUE           |delivery_completed |              8|
+|23 |courier_023 |test  |  0| 3.03|   3.03|TRUE           |delivery_completed |              8|
+|25 |courier_025 |test  |  0| 1.05|   1.05|TRUE           |delivery_completed |              8|
 
 
 

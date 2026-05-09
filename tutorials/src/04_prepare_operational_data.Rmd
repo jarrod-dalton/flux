@@ -119,7 +119,7 @@ str(ops, max.level = 1)
 
 - **`$couriers`** — one row per courier: id, vehicle type, home zone.
 - **`$battery`** — irregular battery readings (sensor pings per courier).
-- **`$weather`** — hourly weather observations from zone-level stations.
+- **`$gps`** — GPS location pings (from the vehicle tracking system).
 - **`$events`** — delivery completion timestamps.
 - **`$shifts`** — shift-level follow-up windows, with real `POSIXct` timestamps.
 
@@ -134,7 +134,7 @@ head(ops$battery) |> kable(digits = 1)
 ```
 
 ```{r}
-head(ops$weather) |> kable(digits = 1)
+head(ops$gps) |> kable(digits = 2)
 ```
 
 ```{r}
@@ -145,10 +145,10 @@ head(ops$events) |> kable(digits = 2)
 head(ops$shifts) |> kable()
 ```
 
-Notice that `battery` and `weather` come from different systems and use
-different column names: battery has `entity_id` and `time`, while weather has
-`station_id` and `recorded_at`. This is typical of real operational data —
-each source has its own schema.
+Notice that `battery` and `gps` come from different systems and use different
+column names: battery has `entity_id` and `time`, while GPS has `vehicle_id`
+and `ping_at`. This is typical of real operational data — each source has its
+own schema.
 
 The `shifts` table uses real `POSIXct` timestamps — the kind of data you'd
 get from a fleet management database. The `time_spec` we pass to fluxPrepare
@@ -210,16 +210,16 @@ cancellations from another), each row records which source it came from.
 ## `prepare_observations()` — canonical observation format
 
 Observations follow the same time conversion, but add a second concept: **specs**.
-Our fleet has two observation sources — battery readings and weather stations —
-and they use completely different column names:
+Our fleet has two observation sources — battery readings and GPS pings — both
+per-courier, but from different tracking systems with different column names:
 
 | Source | ID column | Time column | Measurement columns |
 |--------|-----------|-------------|---------------------|
 | `battery` | `entity_id` | `time` | `battery_pct` |
-| `weather` | `station_id` | `recorded_at` | `temp_c`, `wind_kph`, `humidity_pct` |
+| `gps` | `vehicle_id` | `ping_at` | `lat`, `lon`, `speed_kmh` |
 
 A **spec** is a small list that tells `prepare_observations()` how to map each
-source's columns into the canonical format:
+source's columns into the canonical format (`entity_id`, `time`, variables):
 
 ```{r}
 battery_spec <- list(
@@ -228,35 +228,35 @@ battery_spec <- list(
   vars     = "battery_pct"
 )
 
-weather_spec <- list(
-  id_col   = "station_id",
-  time_col = "recorded_at",
-  vars     = c("temp_c", "wind_kph", "humidity_pct")
+gps_spec <- list(
+  id_col   = "vehicle_id",
+  time_col = "ping_at",
+  vars     = c("lat", "lon", "speed_kmh")
 )
 ```
 
-Now pass both tables and their specs together. `prepare_observations()` renames
-columns to canonical form, converts `POSIXct` → numeric model time, and
-row-binds everything into a single data frame. Variables that don't exist in a
-given source get `NA` (battery rows have no `temp_c`; weather rows have no
-`battery_pct`):
+Pass both tables and their specs together. `prepare_observations()` renames
+each source's columns to canonical form, converts `POSIXct` → numeric model
+time, and row-binds everything. Variables that don't exist in a given source
+get `NA` (battery rows have no `lat`; GPS rows have no `battery_pct`):
 
 ```{r}
 obs_prep <- prepare_observations(
-  tables    = list(battery = ops$battery, weather = ops$weather),
-  specs     = list(battery = battery_spec, weather = weather_spec),
+  tables    = list(battery = ops$battery, gps = ops$gps),
+  specs     = list(battery = battery_spec, gps = gps_spec),
   time_spec = ts,
   sort      = TRUE
 )
 
-head(obs_prep) |> kable(digits = 2)
-tail(obs_prep) |> kable(digits = 2)
+# One courier's combined timeline: battery + GPS interleaved
+obs_prep[obs_prep$entity_id == "courier_001", ] |> head(10) |> kable(digits = 2)
 cat("Total rows:", nrow(obs_prep), "\n")
 cat("Sources:   ", paste(unique(obs_prep$source_table), collapse = ", "), "\n")
 ```
 
-The `source_table` column tracks provenance — you can always filter back to a
-single source if needed. The `group` column carries the same label by default.
+The output is sorted by `entity_id` then `time`, so battery and GPS records for
+the same courier are interleaved chronologically. The `source_table` column
+tracks provenance — you can always filter back to a single source if needed.
 
 ## `prepare_splits()` — validate the split table
 
