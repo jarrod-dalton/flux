@@ -170,13 +170,21 @@ table(splits$split)
 Raw event tables vary in column naming. `prepare_events()` standardizes them
 into the format downstream tools expect: `entity_id`, `time`, `event_type`.
 
+The `time_spec` tells fluxPrepare how to convert the `POSIXct` timestamps into
+numeric model time. Here, `unit = "hours"` with `origin` set to the fleet's
+first shift start — so model time 0 corresponds to the start of shift 1, and
+the values come out as small, interpretable hours:
+
 ```{r}
+fleet_origin <- as.POSIXct("2026-01-05 06:00:00", tz = "UTC")
+ts <- time_spec(unit = "hours", origin = fleet_origin)
+
 events_prep <- prepare_events(
   events    = ops$events,
   id_col    = "entity_id",
   time_col  = "time",
   type_col  = "event_type",
-  time_spec = time_spec(unit = "hours"),
+  time_spec = ts,
   sort      = TRUE
 )
 
@@ -184,11 +192,15 @@ head(events_prep) |> kable(digits = 2)
 cat("Total rows:", nrow(events_prep), "\n")
 ```
 
+The `time` column is now numeric hours from `origin`. If we had omitted the
+`origin`, fluxPrepare would default to the Unix epoch (`1970-01-01`), and times
+would appear as ~491,000 — correct but unintuitive. Passing a domain-appropriate
+origin keeps the numbers readable and aligned with the model's internal clock.
+
 ## `prepare_observations()` — canonical observation format
 
-Observations require a **spec** that tells fluxPrepare how to interpret each
-measurement source. The spec is a simple list identifying the id column, time
-column, and which columns contain the measured variables:
+Observations follow the same time conversion, but add a second concept: **specs**.
+A spec is a small list that maps a source table's columns to canonical roles:
 
 ```{r}
 battery_spec <- list(
@@ -196,11 +208,29 @@ battery_spec <- list(
   time_col = "time",
   vars     = "battery_pct"
 )
+```
 
+Why a separate spec object instead of inline parameters? Because
+`prepare_observations()` is designed to combine **multiple observation sources**
+in a single call. In a real fleet, battery readings, GPS pings, and temperature
+sensors might come from different databases with different column names:
+
+| Source table | `id_col` | `time_col` | `vars` |
+|-------------|----------|-----------|--------|
+| `battery` | `"entity_id"` | `"time"` | `"battery_pct"` |
+| `gps` | `"vehicle"` | `"recorded_at"` | `c("lat", "lon", "speed_kmh")` |
+| `temperature` | `"unit_id"` | `"ts"` | `"cabin_temp_c"` |
+
+Each spec declares how to read its table. `prepare_observations()` normalizes
+them all into a single canonical data frame with `entity_id`, `time`, and one
+column per variable. For our tutorial with a single battery table, the pattern
+looks ceremonial — but the API is built for the multi-source case:
+
+```{r}
 obs_prep <- prepare_observations(
   tables    = list(battery = ops$battery),
   specs     = list(battery = battery_spec),
-  time_spec = time_spec(unit = "hours"),
+  time_spec = ts,
   sort      = TRUE
 )
 
@@ -255,7 +285,7 @@ ttv <- build_ttv_event_process(
   splits       = splits_prep,
   spec         = delivery_ep_spec,
   followup     = ops$shifts,
-  time_spec    = time_spec(unit = "hours", origin = as.POSIXct("2026-01-05 06:00:00", tz = "UTC"))
+  time_spec    = ts
 )
 
 str(ttv, max.level = 1)
@@ -289,7 +319,7 @@ state_at_t0 <- reconstruct_state_at(
   vars         = "battery_pct",
   id_col       = "entity_id",
   time_col     = "t0",
-  time_spec    = time_spec(unit = "hours")
+  time_spec    = ts
 )
 
 head(state_at_t0) |> kable(digits = 2)

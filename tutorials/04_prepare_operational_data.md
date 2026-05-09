@@ -233,14 +233,22 @@ table(splits$split)
 Raw event tables vary in column naming. `prepare_events()` standardizes them
 into the format downstream tools expect: `entity_id`, `time`, `event_type`.
 
+The `time_spec` tells fluxPrepare how to convert the `POSIXct` timestamps into
+numeric model time. Here, `unit = "hours"` with `origin` set to the fleet's
+first shift start — so model time 0 corresponds to the start of shift 1, and
+the values come out as small, interpretable hours:
+
 
 ``` r
+fleet_origin <- as.POSIXct("2026-01-05 06:00:00", tz = "UTC")
+ts <- time_spec(unit = "hours", origin = fleet_origin)
+
 events_prep <- prepare_events(
   events    = ops$events,
   id_col    = "entity_id",
   time_col  = "time",
   type_col  = "event_type",
-  time_spec = time_spec(unit = "hours"),
+  time_spec = ts,
   sort      = TRUE
 )
 
@@ -249,14 +257,14 @@ head(events_prep) |> kable(digits = 2)
 
 
 
-|entity_id   |     time|event_type         |source_table |
-|:-----------|--------:|:------------------|:------------|
-|courier_001 | 491000.4|delivery_completed |NA           |
-|courier_001 | 491001.5|delivery_completed |NA           |
-|courier_001 | 491003.2|delivery_completed |NA           |
-|courier_001 | 491003.7|delivery_completed |NA           |
-|courier_001 | 491005.3|delivery_completed |NA           |
-|courier_001 | 491005.5|delivery_completed |NA           |
+|entity_id   | time|event_type         |source_table |
+|:-----------|----:|:------------------|:------------|
+|courier_001 | 2.38|delivery_completed |NA           |
+|courier_001 | 3.45|delivery_completed |NA           |
+|courier_001 | 5.19|delivery_completed |NA           |
+|courier_001 | 5.66|delivery_completed |NA           |
+|courier_001 | 7.26|delivery_completed |NA           |
+|courier_001 | 7.45|delivery_completed |NA           |
 
 
 
@@ -265,11 +273,15 @@ cat("Total rows:", nrow(events_prep), "\n")
 #> Total rows: 1360
 ```
 
+The `time` column is now numeric hours from `origin`. If we had omitted the
+`origin`, fluxPrepare would default to the Unix epoch (`1970-01-01`), and times
+would appear as ~491,000 — correct but unintuitive. Passing a domain-appropriate
+origin keeps the numbers readable and aligned with the model's internal clock.
+
 ## `prepare_observations()` — canonical observation format
 
-Observations require a **spec** that tells fluxPrepare how to interpret each
-measurement source. The spec is a simple list identifying the id column, time
-column, and which columns contain the measured variables:
+Observations follow the same time conversion, but add a second concept: **specs**.
+A spec is a small list that maps a source table's columns to canonical roles:
 
 
 ``` r
@@ -278,11 +290,30 @@ battery_spec <- list(
   time_col = "time",
   vars     = "battery_pct"
 )
+```
 
+Why a separate spec object instead of inline parameters? Because
+`prepare_observations()` is designed to combine **multiple observation sources**
+in a single call. In a real fleet, battery readings, GPS pings, and temperature
+sensors might come from different databases with different column names:
+
+| Source table | `id_col` | `time_col` | `vars` |
+|-------------|----------|-----------|--------|
+| `battery` | `"entity_id"` | `"time"` | `"battery_pct"` |
+| `gps` | `"vehicle"` | `"recorded_at"` | `c("lat", "lon", "speed_kmh")` |
+| `temperature` | `"unit_id"` | `"ts"` | `"cabin_temp_c"` |
+
+Each spec declares how to read its table. `prepare_observations()` normalizes
+them all into a single canonical data frame with `entity_id`, `time`, and one
+column per variable. For our tutorial with a single battery table, the pattern
+looks ceremonial — but the API is built for the multi-source case:
+
+
+``` r
 obs_prep <- prepare_observations(
   tables    = list(battery = ops$battery),
   specs     = list(battery = battery_spec),
-  time_spec = time_spec(unit = "hours"),
+  time_spec = ts,
   sort      = TRUE
 )
 
@@ -291,14 +322,14 @@ head(obs_prep) |> kable(digits = 2)
 
 
 
-|entity_id   |     time|group   | battery_pct|source_table |
-|:-----------|--------:|:-------|-----------:|:------------|
-|courier_001 | 490999.2|battery |        96.9|battery      |
-|courier_001 | 490999.4|battery |        96.3|battery      |
-|courier_001 | 491000.3|battery |        91.2|battery      |
-|courier_001 | 491000.6|battery |        91.9|battery      |
-|courier_001 | 491001.2|battery |        91.3|battery      |
-|courier_001 | 491003.8|battery |        61.7|battery      |
+|entity_id   | time|group   | battery_pct|source_table |
+|:-----------|----:|:-------|-----------:|:------------|
+|courier_001 | 1.19|battery |        96.9|battery      |
+|courier_001 | 1.36|battery |        96.3|battery      |
+|courier_001 | 2.35|battery |        91.2|battery      |
+|courier_001 | 2.59|battery |        91.9|battery      |
+|courier_001 | 3.16|battery |        91.3|battery      |
+|courier_001 | 5.76|battery |        61.7|battery      |
 
 
 
@@ -361,7 +392,7 @@ ttv <- build_ttv_event_process(
   splits       = splits_prep,
   spec         = delivery_ep_spec,
   followup     = ops$shifts,
-  time_spec    = time_spec(unit = "hours", origin = as.POSIXct("2026-01-05 06:00:00", tz = "UTC"))
+  time_spec    = ts
 )
 
 str(ttv, max.level = 1)
@@ -369,10 +400,10 @@ str(ttv, max.level = 1)
 #>  $ entity_id     : chr  "courier_001" "courier_002" "courier_003" "courier_004" ...
 #>  $ split         : chr  "test" "validation" "train" "test" ...
 #>  $ t0            : num  0 0 0 0 0 0 0 0 0 0 ...
-#>  $ t1            : num  8 8 8 8 8 8 8 8 8 8 ...
-#>  $ deltat        : num  8 8 8 8 8 8 8 8 8 8 ...
-#>  $ event_occurred: logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
-#>  $ event_type    : chr  NA NA NA NA ...
+#>  $ t1            : num  2.377 0.742 1.338 3.288 0.761 ...
+#>  $ deltat        : num  2.377 0.742 1.338 3.288 0.761 ...
+#>  $ event_occurred: logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
+#>  $ event_type    : chr  "delivery_completed" "delivery_completed" "delivery_completed" "delivery_completed" ...
 #>  $ censoring_time: num  8 8 8 8 8 8 8 8 8 8 ...
 #>  - attr(*, "spec")=List of 13
 #>   ..- attr(*, "class")= chr [1:2] "spec_event_process" "flux_spec"
@@ -391,14 +422,14 @@ head(ttv_test) |> kable(digits = 2)
 
 
 
-|   |entity_id   |split | t0| t1| deltat|event_occurred |event_type | censoring_time|
-|:--|:-----------|:-----|--:|--:|------:|:--------------|:----------|--------------:|
-|1  |courier_001 |test  |  0|  8|      8|FALSE          |NA         |              8|
-|4  |courier_004 |test  |  0|  8|      8|FALSE          |NA         |              8|
-|17 |courier_017 |test  |  0|  8|      8|FALSE          |NA         |              8|
-|21 |courier_021 |test  |  0|  8|      8|FALSE          |NA         |              8|
-|23 |courier_023 |test  |  0|  8|      8|FALSE          |NA         |              8|
-|25 |courier_025 |test  |  0|  8|      8|FALSE          |NA         |              8|
+|   |entity_id   |split | t0|   t1| deltat|event_occurred |event_type         | censoring_time|
+|:--|:-----------|:-----|--:|----:|------:|:--------------|:------------------|--------------:|
+|1  |courier_001 |test  |  0| 2.38|   2.38|TRUE           |delivery_completed |              8|
+|4  |courier_004 |test  |  0| 3.29|   3.29|TRUE           |delivery_completed |              8|
+|17 |courier_017 |test  |  0| 2.33|   2.33|TRUE           |delivery_completed |              8|
+|21 |courier_021 |test  |  0| 2.34|   2.34|TRUE           |delivery_completed |              8|
+|23 |courier_023 |test  |  0| 0.77|   0.77|TRUE           |delivery_completed |              8|
+|25 |courier_025 |test  |  0| 0.87|   0.87|TRUE           |delivery_completed |              8|
 
 
 
@@ -427,7 +458,7 @@ state_at_t0 <- reconstruct_state_at(
   vars         = "battery_pct",
   id_col       = "entity_id",
   time_col     = "t0",
-  time_spec    = time_spec(unit = "hours")
+  time_spec    = ts
 )
 
 head(state_at_t0) |> kable(digits = 2)
