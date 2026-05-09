@@ -164,8 +164,8 @@ generate_delivery_log <- function(n_couriers = 50,
       gps_times <- sort(stats::runif(n_gps, min = shift_start_hours,
                                       max = shift_start_hours + gps_dur))
 
-      base_lat <- switch(zone, urban = 40.73, suburban = 40.82, rural = 41.05)
-      base_lon <- switch(zone, urban = -73.99, suburban = -73.88, rural = -73.72)
+      base_lat <- switch(zone, urban = 41.50, suburban = 41.44, rural = 41.35)
+      base_lon <- switch(zone, urban = -81.69, suburban = -81.54, rural = -81.39)
 
       all_gps[[idx]] <- data.frame(
         vehicle_id = courier_id,
