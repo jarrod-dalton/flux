@@ -170,8 +170,8 @@ generate_delivery_log <- function(n_couriers = 50,
       all_gps[[idx]] <- data.frame(
         vehicle_id = courier_id,
         ping_at    = fleet_origin + gps_times * 3600,
-        lat        = round(base_lat + cumsum(stats::rnorm(n_gps, 0, 0.002)), 5),
-        lon        = round(base_lon + cumsum(stats::rnorm(n_gps, 0, 0.002)), 5),
+        lat        = round(base_lat + cumsum(stats::rnorm(n_gps, 0, 0.01)), 5),
+        lon        = round(base_lon + cumsum(stats::rnorm(n_gps, 0, 0.01)), 5),
         speed_kmh  = round(pmax(0, stats::rnorm(n_gps, mean = 18, sd = 8)), 1),
         stringsAsFactors = FALSE
       )

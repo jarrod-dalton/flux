@@ -71,11 +71,6 @@ assumptions are specified.
   validity rules (`lookback`, `staleness`). This avoids leaking future
   information into training rows.
 
-- **Follow-up ≠ alive.** An entity may be active but no longer observed (e.g.,
-  went off-shift, left the fleet). After follow-up ends, state is undefined.
-  This distinction is essential for correct denominators in both model
-  development and downstream validation.
-
 ### The Prepare workflow: standardize → segment → build
 
 The `fluxPrepare` pipeline has three stages:
@@ -164,11 +159,16 @@ courier_003's Tuesday shift.
 ```{r}
 splits <- generate_splits(ops$couriers, train_frac = 0.6, test_frac = 0.2,
                           seed = 123)
-head(splits) |> kable()
+splits |> kable()
 ```
 
+If you bring your own split table, `prepare_splits()` validates it (unique
+entities, valid labels, correct columns). Here we use `generate_splits()`, which
+already produces a valid table, so we pass it directly to downstream functions.
+
 ```{r}
-table(splits$split)
+splits_prep <- prepare_splits(splits)
+str(splits_prep)
 ```
 
 ## `prepare_events()` — canonical event format
@@ -258,25 +258,23 @@ The output is sorted by `entity_id` then `time`, so battery and GPS records for
 the same courier are interleaved chronologically. The `source_table` column
 tracks provenance — you can always filter back to a single source if needed.
 
-## `prepare_splits()` — validate the split table
+## Two kinds of TTV dataset
 
-```{r}
-splits_prep <- prepare_splits(
-  df       = splits,
-  id_col   = "entity_id",
-  split_col = "split"
-)
+The preparation pipeline can build two kinds of train/test/validation datasets,
+depending on the modelling question:
 
-str(splits_prep)
-```
+| Builder | Question | Anchors from |
+|---------|----------|--------------|
+| `build_ttv_event_process()` | Will a specific event happen within the next H hours? | Follow-up windows + events |
+| `build_ttv_state()` | What will the next observed state look like? | Consecutive observation times |
 
-This is a lightweight validation step: it checks that every entity has exactly
-one split assignment and that split labels are from the allowed set
-(train/test/validation).
+Both produce interval tables with `t0`, `t1`, `deltat`, and a split label.
+The difference is where the intervals come from and what the outcome column
+represents.
 
-## Building the TTV event process
+## Event-process TTV
 
-The core analytical question for Tutorial 05 (validation) is: **given a courier's
+The question for Tutorial 05 (validation) is: **given a courier's
 state at time t₀, what is the probability of a delivery completion within the
 next H hours?**
 
@@ -317,14 +315,14 @@ belong to train, test, or validation.
 ```{r}
 ttv_train <- ttv[ttv$split == "train", ]
 ttv_test  <- ttv[ttv$split == "test", ]
-head(ttv_test) |> kable(digits = 2)
-cat("Train rows:", nrow(ttv_train), "\n")
-cat("Test rows: ", nrow(ttv_test), "\n")
+ttv_test |> kable(digits = 2)
 ```
 
-Each row is one entity × one interval: `entity_id`, `t0` (anchor time),
-`t1` (first event time or censoring), `deltat` (time to event/censoring),
-`event_occurred` (TRUE if the event happened), and `censoring_time`.
+Each row is one entity × one follow-up interval. Notice how consecutive rows
+for the same courier chain together: the first row's `t1` becomes the next
+row's `t0`. Columns: `entity_id`, `t0` (anchor time), `t1` (first event
+time or censoring), `deltat` (time to event/censoring), `event_occurred`,
+and `censoring_time`.
 
 ## Reconstructing state at t₀
 
@@ -334,11 +332,9 @@ recovers the most recent measurement of each variable prior to t₀.
 
 ```{r}
 state_at_t0 <- reconstruct_state_at(
-  anchors      = ttv_test[, c("entity_id", "t0")],
+  anchors      = ttv_test,
   observations = obs_prep,
   vars         = "battery_pct",
-  id_col       = "entity_id",
-  time_col     = "t0",
   time_spec    = ts
 )
 
@@ -348,6 +344,41 @@ head(state_at_t0) |> kable(digits = 2)
 Each row tells you: "for courier X at anchor time t₀, the last observed
 battery_pct was Y." This is the starting state you feed to the Engine in
 Tutorial 05 when running forecasts from the test set.
+
+## State-transition TTV
+
+Sometimes the question isn't "did an event happen?" but "what does the next
+measurement look like?" — for example, predicting the next battery reading
+from the current one. `build_ttv_state()` builds intervals from consecutive
+observation times in a chosen group, reconstructs predictors at t₀, and
+attaches the outcome values observed at t₁.
+
+```{r}
+ttv_state <- build_ttv_state(
+  observations    = obs_prep,
+  splits          = splits_prep,
+  outcome_group   = "battery",
+  outcome_vars    = "battery_pct",
+  predictor_vars  = "battery_pct",
+  followup        = ops$shifts,
+  fu_start_col    = "shift_start",
+  fu_end_col      = "shift_end",
+  time_spec       = ts
+)
+
+str(ttv_state, max.level = 1)
+```
+
+```{r}
+ttv_state_test <- ttv_state[ttv_state$split == "test", ]
+head(ttv_state_test, 8) |> kable(digits = 2)
+```
+
+Each row is a consecutive battery → battery interval. The `battery_pct` column
+is the predictor (value at t₀); the `outcome_battery_pct` column is the outcome
+(value at t₁). Unlike the event-process TTV, there is no separate
+`reconstruct_state_at()` call — `build_ttv_state()` does reconstruction
+internally.
 
 ## Putting it together
 
@@ -359,8 +390,11 @@ Raw ops log
   ├── prepare_observations()  → canonical obs
   ├── generate_splits()       → entity-level splits
   │
-  └── build_ttv_event_process()  → anchored intervals + outcomes
-        └── reconstruct_state_at() → starting state per interval
+  ├── build_ttv_event_process()  → event intervals + outcomes
+  │     └── reconstruct_state_at() → predictors at each t₀
+  │
+  └── build_ttv_state()          → state-transition intervals
+                                    (predictors reconstructed internally)
 ```
 
 Everything downstream — forecasting, validation — consumes these outputs.
@@ -376,10 +410,10 @@ predictions.
 | `generate_splits()` | Entity-level train/test/validation split |
 | `prepare_events()` | Standardize event table columns |
 | `prepare_observations()` | Standardize observation tables with specs |
-| `prepare_splits()` | Validate split assignments |
 | `spec_event_process()` | Define the event process to model |
-| `build_ttv_event_process()` | Anchored intervals with outcomes, split by TTV |
-| `reconstruct_state_at()` | Recover state at each anchor time from history |
+| `build_ttv_event_process()` | Event intervals with outcomes, split by TTV |
+| `build_ttv_state()` | State-transition intervals with predictors + outcomes |
+| `reconstruct_state_at()` | Recover predictor state at each anchor time |
 
 **Next:** [05_validation.md](05_validation.md) — forecast from the test-set
 baselines and compare predicted vs observed outcomes using `fluxValidation`.
