@@ -94,20 +94,22 @@ ops <- generate_delivery_log(
 )
 ```
 
-The result has four tables:
+The result has five tables:
 
 
 ``` r
 str(ops, max.level = 1)
-#> List of 4
+#> List of 5
 #>  $ couriers:'data.frame':	30 obs. of  3 variables:
 #>  $ battery :'data.frame':	3806 obs. of  3 variables:
+#>  $ weather :'data.frame':	579 obs. of  5 variables:
 #>  $ events  :'data.frame':	1360 obs. of  3 variables:
 #>  $ shifts  :'data.frame':	240 obs. of  4 variables:
 ```
 
 - **`$couriers`** — one row per courier: id, vehicle type, home zone.
-- **`$battery`** — irregular battery readings (sensor pings).
+- **`$battery`** — irregular battery readings (sensor pings per courier).
+- **`$weather`** — hourly weather observations from zone-level stations.
 - **`$events`** — delivery completion timestamps.
 - **`$shifts`** — shift-level follow-up windows, with real `POSIXct` timestamps.
 
@@ -133,7 +135,7 @@ head(ops$couriers) |> kable()
 
 
 ``` r
-head(ops$battery) |> kable(digits = 2)
+head(ops$battery) |> kable(digits = 1)
 ```
 
 
@@ -146,6 +148,24 @@ head(ops$battery) |> kable(digits = 2)
 |courier_001 |2026-01-05 08:35:33 |        91.9|
 |courier_001 |2026-01-05 09:09:19 |        91.3|
 |courier_001 |2026-01-05 11:45:18 |        61.7|
+
+
+
+
+``` r
+head(ops$weather) |> kable(digits = 1)
+```
+
+
+
+|station_id |recorded_at         | temp_c| wind_kph| humidity_pct|
+|:----------|:-------------------|------:|--------:|------------:|
+|WX_urban   |2026-01-05 06:00:00 |   15.1|      7.0|         72.5|
+|WX_urban   |2026-01-05 07:00:00 |   15.6|     21.8|         66.9|
+|WX_urban   |2026-01-05 08:00:00 |   16.8|     16.6|         35.7|
+|WX_urban   |2026-01-05 09:00:00 |   18.9|     15.6|         47.3|
+|WX_urban   |2026-01-05 10:00:00 |   18.4|     10.8|         55.1|
+|WX_urban   |2026-01-05 11:00:00 |   20.6|     25.4|         73.2|
 
 
 
@@ -185,9 +205,10 @@ head(ops$shifts) |> kable()
 
 
 
-Notice that `battery` is in **long format** (entity_id × time × variable ×
-value). This is the canonical shape `fluxPrepare` expects for continuous
-measurements.
+Notice that `battery` and `weather` come from different systems and use
+different column names: battery has `entity_id` and `time`, while weather has
+`station_id` and `recorded_at`. This is typical of real operational data —
+each source has its own schema.
 
 The `shifts` table uses real `POSIXct` timestamps — the kind of data you'd
 get from a fleet management database. The `time_spec` we pass to fluxPrepare
@@ -278,10 +299,23 @@ The `time` column is now numeric hours from `origin`. If we had omitted the
 would appear as ~491,000 — correct but unintuitive. Passing a domain-appropriate
 origin keeps the numbers readable and aligned with the model's internal clock.
 
+The `source_table` column is `NA` here because we passed a single data frame.
+If you pass a named list of event tables (e.g., deliveries from one system and
+cancellations from another), each row records which source it came from.
+
 ## `prepare_observations()` — canonical observation format
 
 Observations follow the same time conversion, but add a second concept: **specs**.
-A spec is a small list that maps a source table's columns to canonical roles:
+Our fleet has two observation sources — battery readings and weather stations —
+and they use completely different column names:
+
+| Source | ID column | Time column | Measurement columns |
+|--------|-----------|-------------|---------------------|
+| `battery` | `entity_id` | `time` | `battery_pct` |
+| `weather` | `station_id` | `recorded_at` | `temp_c`, `wind_kph`, `humidity_pct` |
+
+A **spec** is a small list that tells `prepare_observations()` how to map each
+source's columns into the canonical format:
 
 
 ``` r
@@ -290,29 +324,25 @@ battery_spec <- list(
   time_col = "time",
   vars     = "battery_pct"
 )
+
+weather_spec <- list(
+  id_col   = "station_id",
+  time_col = "recorded_at",
+  vars     = c("temp_c", "wind_kph", "humidity_pct")
+)
 ```
 
-Why a separate spec object instead of inline parameters? Because
-`prepare_observations()` is designed to combine **multiple observation sources**
-in a single call. In a real fleet, battery readings, GPS pings, and temperature
-sensors might come from different databases with different column names:
-
-| Source table | `id_col` | `time_col` | `vars` |
-|-------------|----------|-----------|--------|
-| `battery` | `"entity_id"` | `"time"` | `"battery_pct"` |
-| `gps` | `"vehicle"` | `"recorded_at"` | `c("lat", "lon", "speed_kmh")` |
-| `temperature` | `"unit_id"` | `"ts"` | `"cabin_temp_c"` |
-
-Each spec declares how to read its table. `prepare_observations()` normalizes
-them all into a single canonical data frame with `entity_id`, `time`, and one
-column per variable. For our tutorial with a single battery table, the pattern
-looks ceremonial — but the API is built for the multi-source case:
+Now pass both tables and their specs together. `prepare_observations()` renames
+columns to canonical form, converts `POSIXct` → numeric model time, and
+row-binds everything into a single data frame. Variables that don't exist in a
+given source get `NA` (battery rows have no `temp_c`; weather rows have no
+`battery_pct`):
 
 
 ``` r
 obs_prep <- prepare_observations(
-  tables    = list(battery = ops$battery),
-  specs     = list(battery = battery_spec),
+  tables    = list(battery = ops$battery, weather = ops$weather),
+  specs     = list(battery = battery_spec, weather = weather_spec),
   time_spec = ts,
   sort      = TRUE
 )
@@ -322,21 +352,43 @@ head(obs_prep) |> kable(digits = 2)
 
 
 
-|entity_id   | time|group   | battery_pct|source_table |
-|:-----------|----:|:-------|-----------:|:------------|
-|courier_001 | 1.19|battery |        96.9|battery      |
-|courier_001 | 1.36|battery |        96.3|battery      |
-|courier_001 | 2.35|battery |        91.2|battery      |
-|courier_001 | 2.59|battery |        91.9|battery      |
-|courier_001 | 3.16|battery |        91.3|battery      |
-|courier_001 | 5.76|battery |        61.7|battery      |
+|entity_id   | time|group   | battery_pct| temp_c| wind_kph| humidity_pct|source_table |
+|:-----------|----:|:-------|-----------:|------:|--------:|------------:|:------------|
+|courier_001 | 1.19|battery |        96.9|     NA|       NA|           NA|battery      |
+|courier_001 | 1.36|battery |        96.3|     NA|       NA|           NA|battery      |
+|courier_001 | 2.35|battery |        91.2|     NA|       NA|           NA|battery      |
+|courier_001 | 2.59|battery |        91.9|     NA|       NA|           NA|battery      |
+|courier_001 | 3.16|battery |        91.3|     NA|       NA|           NA|battery      |
+|courier_001 | 5.76|battery |        61.7|     NA|       NA|           NA|battery      |
+
+
+
+``` r
+tail(obs_prep) |> kable(digits = 2)
+```
+
+
+
+|     |entity_id | time|group   | battery_pct| temp_c| wind_kph| humidity_pct|source_table |
+|:----|:---------|----:|:-------|-----------:|------:|--------:|------------:|:------------|
+|4380 |WX_urban  |  187|weather |          NA|   21.2|      9.8|         83.8|weather      |
+|4381 |WX_urban  |  188|weather |          NA|   19.2|     19.1|         66.6|weather      |
+|4382 |WX_urban  |  189|weather |          NA|   17.3|     15.6|         65.9|weather      |
+|4383 |WX_urban  |  190|weather |          NA|   19.9|      5.9|         45.6|weather      |
+|4384 |WX_urban  |  191|weather |          NA|   15.9|     15.7|         72.8|weather      |
+|4385 |WX_urban  |  192|weather |          NA|   17.0|     13.3|         43.6|weather      |
 
 
 
 ``` r
 cat("Total rows:", nrow(obs_prep), "\n")
-#> Total rows: 3806
+#> Total rows: 4385
+cat("Sources:   ", paste(unique(obs_prep$source_table), collapse = ", "), "\n")
+#> Sources:    battery, weather
 ```
+
+The `source_table` column tracks provenance — you can always filter back to a
+single source if needed. The `group` column carries the same label by default.
 
 ## `prepare_splits()` — validate the split table
 

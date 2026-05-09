@@ -5,9 +5,11 @@
 # Generates a realistic synthetic operational log for a delivery fleet.
 # Produces the raw data that fluxPrepare ingests in Tutorial 04.
 #
-# Output: a list with four data frames:
+# Output: a list with five data frames:
 #   $couriers  - courier registry (entity_id, vehicle_type, home_zone)
 #   $battery   - irregular battery readings (entity_id, time, battery_pct)
+#   $weather   - hourly weather readings (station_id, recorded_at, temp_c,
+#                wind_kph, humidity_pct) — station_id maps to courier home_zone
 #   $events    - delivery completion events (entity_id, time, event_type)
 #   $shifts    - shift-level follow-up windows (entity_id, shift_id,
 #                shift_start, shift_end) — POSIXct timestamps
@@ -35,7 +37,7 @@
 #' @param seed       Optional seed for full reproducibility. If NULL, uses
 #'                   current RNG state.
 #'
-#' @return A list with components: couriers, battery, events, shifts.
+#' @return A list with components: couriers, battery, weather, events, shifts.
 generate_delivery_log <- function(n_couriers = 50,
                                   n_shifts = 10,
                                   params = list(),
@@ -183,9 +185,36 @@ generate_delivery_log <- function(n_couriers = 50,
   rownames(events)  <- NULL
   rownames(shifts)  <- NULL
 
+  # -- Weather observations (hourly, one station per zone) --
+  # Deliberately uses different column names (station_id, recorded_at)
+  # to demonstrate how specs map heterogeneous tables.
+  total_hours <- n_shifts * (shift_length + shift_gap)
+  weather_times <- seq(0, total_hours, by = 1)   # hourly readings
+  zone_stations <- c(urban = "WX_urban", suburban = "WX_suburban",
+                     rural = "WX_rural")
+
+  weather <- do.call(rbind, lapply(names(zone_stations), function(z) {
+    n <- length(weather_times)
+    # Base temperature varies by zone; add smooth diurnal cycle + noise
+    base_temp <- switch(z, urban = 22, suburban = 19, rural = 16)
+    diurnal   <- 5 * sin((weather_times - 6) * pi / 12)
+    temp      <- round(base_temp + diurnal + stats::rnorm(n, 0, 1.5), 1)
+
+    data.frame(
+      station_id  = zone_stations[[z]],
+      recorded_at = fleet_origin + weather_times * 3600,
+      temp_c      = temp,
+      wind_kph    = round(pmax(0, stats::rnorm(n, mean = 15, sd = 6)), 1),
+      humidity_pct = round(pmin(100, pmax(20, stats::rnorm(n, mean = 60, sd = 12))), 1),
+      stringsAsFactors = FALSE
+    )
+  }))
+  rownames(weather) <- NULL
+
   list(
     couriers = couriers,
     battery  = battery,
+    weather  = weather,
     events   = events,
     shifts   = shifts
   )
