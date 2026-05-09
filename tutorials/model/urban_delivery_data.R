@@ -41,7 +41,7 @@ generate_delivery_log <- function(n_couriers = 50,
                                   params = list(),
                                   shift_gap = 16,
                                   obs_rate = 2,
-                                  fleet_origin = as.POSIXct("2026-01-05 00:00:00", tz = "UTC"),
+                                  fleet_origin = as.POSIXct("2026-01-05 06:00:00", tz = "UTC"),
                                   seed = NULL) {
 
   if (!is.null(seed)) set.seed(seed)
@@ -89,8 +89,8 @@ generate_delivery_log <- function(n_couriers = 50,
     for (s in seq_len(n_shifts)) {
       idx <- idx + 1L
 
-      # Shift start time: continuous hours from fleet origin
-      shift_start <- (s - 1) * (shift_length + shift_gap)
+      # Shift start in continuous hours; first shift starts at hour 0
+      shift_start_hours <- (s - 1) * (shift_length + shift_gap)
 
       # Starting battery: not always 100 (varies by vehicle wear)
       start_battery <- min(100, max(60, stats::rnorm(1, mean = 95, sd = 8)))
@@ -104,7 +104,7 @@ generate_delivery_log <- function(n_couriers = 50,
         ),
         schema      = schema,
         entity_type = "courier",
-        time0       = shift_start
+        time0       = shift_start_hours
       )
 
       # Run the shift
@@ -117,7 +117,7 @@ generate_delivery_log <- function(n_couriers = 50,
         if (nrow(delivery_rows) > 0L) {
           all_events[[idx]] <- data.frame(
             entity_id  = courier_id,
-            time       = delivery_rows$time,
+            time       = fleet_origin + delivery_rows$time * 3600,
             event_type = "delivery_completed",
             stringsAsFactors = FALSE
           )
@@ -129,11 +129,11 @@ generate_delivery_log <- function(n_couriers = 50,
       if (!is.null(obs_df) && nrow(obs_df) > 0L) {
         # Subsample: simulate sensor pings as a thinned version of the full log
         shift_end <- max(obs_df$time)
-        shift_dur <- shift_end - shift_start
+        shift_dur <- shift_end - shift_start_hours
         n_pings   <- max(1L, stats::rpois(1, lambda = obs_rate * shift_dur))
 
         # Draw ping times uniformly within the shift
-        ping_times <- sort(stats::runif(n_pings, min = shift_start, max = shift_end))
+        ping_times <- sort(stats::runif(n_pings, min = shift_start_hours, max = shift_end))
 
         # For each ping time, interpolate battery from the nearest prior observation
         battery_values <- vapply(ping_times, function(tp) {
@@ -147,7 +147,7 @@ generate_delivery_log <- function(n_couriers = 50,
 
         all_obs[[idx]] <- data.frame(
           entity_id   = courier_id,
-          time        = ping_times,
+          time        = fleet_origin + ping_times * 3600,
           battery_pct = round(battery_values, 1),
           stringsAsFactors = FALSE
         )
@@ -157,14 +157,18 @@ generate_delivery_log <- function(n_couriers = 50,
       shift_end_actual <- if (!is.null(ev) && nrow(ev) > 0L) {
         max(ev$time)
       } else {
-        shift_start + shift_length
+        shift_start_hours + shift_length
       }
+
+      # Convert to POSIXct timestamps
+      shift_start_posix <- fleet_origin + shift_start_hours * 3600
+      shift_end_posix   <- fleet_origin + shift_end_actual * 3600
 
       all_fu[[idx]] <- data.frame(
         entity_id   = courier_id,
         shift_id    = paste0(courier_id, "_shift_", s),
-        shift_start = fleet_origin + shift_start * 3600,
-        shift_end   = fleet_origin + shift_end_actual * 3600,
+        shift_start = shift_start_posix,
+        shift_end   = shift_end_posix,
         stringsAsFactors = FALSE
       )
     }

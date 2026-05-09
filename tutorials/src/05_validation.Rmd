@@ -84,7 +84,7 @@ ttv <- build_ttv_event_process(
   splits       = splits_prep,
   spec         = delivery_ep_spec,
   followup     = ops$shifts,
-  time_spec    = time_spec(unit = "hours", origin = as.POSIXct("2026-01-05", tz = "UTC"))
+  time_spec    = time_spec(unit = "hours", origin = as.POSIXct("2026-01-05 06:00:00", tz = "UTC"))
 )
 ```
 

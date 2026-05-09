@@ -65,7 +65,7 @@ ttv <- build_ttv_event_process(
   splits       = splits_prep,
   spec         = delivery_ep_spec,
   followup     = ops$shifts,
-  time_spec    = time_spec(unit = "hours", origin = as.POSIXct("2026-01-05", tz = "UTC"))
+  time_spec    = time_spec(unit = "hours", origin = as.POSIXct("2026-01-05 06:00:00", tz = "UTC"))
 )
 ```
 
@@ -76,24 +76,17 @@ Each row in `ttv$test` represents one courier × one shift interval:
 
 ``` r
 head(ttv[ttv$split == "test", ])
-#>      entity_id split t0        t1    deltat event_occurred         event_type
-#> 1  courier_001  test  0 2.3768432 2.3768432           TRUE delivery_completed
-#> 4  courier_004  test  0 3.2884482 3.2884482           TRUE delivery_completed
-#> 17 courier_017  test  0 2.3255248 2.3255248           TRUE delivery_completed
-#> 21 courier_021  test  0 2.3429078 2.3429078           TRUE delivery_completed
-#> 23 courier_023  test  0 0.7654377 0.7654377           TRUE delivery_completed
-#> 25 courier_025  test  0 0.8656996 0.8656996           TRUE delivery_completed
-#>    censoring_time
-#> 1               8
-#> 4               8
-#> 17              8
-#> 21              8
-#> 23              8
-#> 25              8
+#>      entity_id split t0 t1 deltat event_occurred event_type censoring_time
+#> 1  courier_001  test  0  8      8          FALSE       <NA>              8
+#> 4  courier_004  test  0  8      8          FALSE       <NA>              8
+#> 17 courier_017  test  0  8      8          FALSE       <NA>              8
+#> 21 courier_021  test  0  8      8          FALSE       <NA>              8
+#> 23 courier_023  test  0  8      8          FALSE       <NA>              8
+#> 25 courier_025  test  0  8      8          FALSE       <NA>              8
 cat("Test-set intervals:", sum(ttv$split == "test"), "\n")
 #> Test-set intervals: 6
 cat("Outcome rate:      ", round(mean(ttv$event_occurred[ttv$split == "test"]), 3), "\n")
-#> Outcome rate:       1
+#> Outcome rate:       0
 ```
 
 The `event_occurred` column is TRUE if the courier completed at least one delivery

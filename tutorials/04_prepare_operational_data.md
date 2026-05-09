@@ -138,14 +138,14 @@ head(ops$battery) |> kable(digits = 2)
 
 
 
-|entity_id   | time| battery_pct|
-|:-----------|----:|-----------:|
-|courier_001 | 1.19|        96.9|
-|courier_001 | 1.36|        96.3|
-|courier_001 | 2.35|        91.2|
-|courier_001 | 2.59|        91.9|
-|courier_001 | 3.16|        91.3|
-|courier_001 | 5.76|        61.7|
+|entity_id   |time                | battery_pct|
+|:-----------|:-------------------|-----------:|
+|courier_001 |2026-01-05 07:11:33 |        96.9|
+|courier_001 |2026-01-05 07:21:40 |        96.3|
+|courier_001 |2026-01-05 08:20:56 |        91.2|
+|courier_001 |2026-01-05 08:35:33 |        91.9|
+|courier_001 |2026-01-05 09:09:19 |        91.3|
+|courier_001 |2026-01-05 11:45:18 |        61.7|
 
 
 
@@ -156,14 +156,14 @@ head(ops$events) |> kable(digits = 2)
 
 
 
-|entity_id   | time|event_type         |
-|:-----------|----:|:------------------|
-|courier_001 | 2.38|delivery_completed |
-|courier_001 | 3.45|delivery_completed |
-|courier_001 | 5.19|delivery_completed |
-|courier_001 | 5.66|delivery_completed |
-|courier_001 | 7.26|delivery_completed |
-|courier_001 | 7.45|delivery_completed |
+|entity_id   |time                |event_type         |
+|:-----------|:-------------------|:------------------|
+|courier_001 |2026-01-05 08:22:36 |delivery_completed |
+|courier_001 |2026-01-05 09:26:45 |delivery_completed |
+|courier_001 |2026-01-05 11:11:24 |delivery_completed |
+|courier_001 |2026-01-05 11:39:49 |delivery_completed |
+|courier_001 |2026-01-05 13:15:51 |delivery_completed |
+|courier_001 |2026-01-05 13:27:10 |delivery_completed |
 
 
 
@@ -174,14 +174,14 @@ head(ops$shifts) |> kable()
 
 
 
-|entity_id   |shift_id            |shift_start |shift_end           |
-|:-----------|:-------------------|:-----------|:-------------------|
-|courier_001 |courier_001_shift_1 |2026-01-05  |2026-01-05 08:00:00 |
-|courier_001 |courier_001_shift_2 |2026-01-06  |2026-01-06 08:00:00 |
-|courier_001 |courier_001_shift_3 |2026-01-07  |2026-01-07 08:00:00 |
-|courier_001 |courier_001_shift_4 |2026-01-08  |2026-01-08 08:00:00 |
-|courier_001 |courier_001_shift_5 |2026-01-09  |2026-01-09 08:00:00 |
-|courier_001 |courier_001_shift_6 |2026-01-10  |2026-01-10 08:00:00 |
+|entity_id   |shift_id            |shift_start         |shift_end           |
+|:-----------|:-------------------|:-------------------|:-------------------|
+|courier_001 |courier_001_shift_1 |2026-01-05 06:00:00 |2026-01-05 14:00:00 |
+|courier_001 |courier_001_shift_2 |2026-01-06 06:00:00 |2026-01-06 14:00:00 |
+|courier_001 |courier_001_shift_3 |2026-01-07 06:00:00 |2026-01-07 14:00:00 |
+|courier_001 |courier_001_shift_4 |2026-01-08 06:00:00 |2026-01-08 14:00:00 |
+|courier_001 |courier_001_shift_5 |2026-01-09 06:00:00 |2026-01-09 14:00:00 |
+|courier_001 |courier_001_shift_6 |2026-01-10 06:00:00 |2026-01-10 14:00:00 |
 
 
 
@@ -249,14 +249,14 @@ head(events_prep) |> kable(digits = 2)
 
 
 
-|entity_id   | time|event_type         |source_table |
-|:-----------|----:|:------------------|:------------|
-|courier_001 | 2.38|delivery_completed |NA           |
-|courier_001 | 3.45|delivery_completed |NA           |
-|courier_001 | 5.19|delivery_completed |NA           |
-|courier_001 | 5.66|delivery_completed |NA           |
-|courier_001 | 7.26|delivery_completed |NA           |
-|courier_001 | 7.45|delivery_completed |NA           |
+|entity_id   |     time|event_type         |source_table |
+|:-----------|--------:|:------------------|:------------|
+|courier_001 | 491000.4|delivery_completed |NA           |
+|courier_001 | 491001.5|delivery_completed |NA           |
+|courier_001 | 491003.2|delivery_completed |NA           |
+|courier_001 | 491003.7|delivery_completed |NA           |
+|courier_001 | 491005.3|delivery_completed |NA           |
+|courier_001 | 491005.5|delivery_completed |NA           |
 
 
 
@@ -291,14 +291,14 @@ head(obs_prep) |> kable(digits = 2)
 
 
 
-|entity_id   | time|group   | battery_pct|source_table |
-|:-----------|----:|:-------|-----------:|:------------|
-|courier_001 | 1.19|battery |        96.9|battery      |
-|courier_001 | 1.36|battery |        96.3|battery      |
-|courier_001 | 2.35|battery |        91.2|battery      |
-|courier_001 | 2.59|battery |        91.9|battery      |
-|courier_001 | 3.16|battery |        91.3|battery      |
-|courier_001 | 5.76|battery |        61.7|battery      |
+|entity_id   |     time|group   | battery_pct|source_table |
+|:-----------|--------:|:-------|-----------:|:------------|
+|courier_001 | 490999.2|battery |        96.9|battery      |
+|courier_001 | 490999.4|battery |        96.3|battery      |
+|courier_001 | 491000.3|battery |        91.2|battery      |
+|courier_001 | 491000.6|battery |        91.9|battery      |
+|courier_001 | 491001.2|battery |        91.3|battery      |
+|courier_001 | 491003.8|battery |        61.7|battery      |
 
 
 
@@ -361,7 +361,7 @@ ttv <- build_ttv_event_process(
   splits       = splits_prep,
   spec         = delivery_ep_spec,
   followup     = ops$shifts,
-  time_spec    = time_spec(unit = "hours", origin = as.POSIXct("2026-01-05", tz = "UTC"))
+  time_spec    = time_spec(unit = "hours", origin = as.POSIXct("2026-01-05 06:00:00", tz = "UTC"))
 )
 
 str(ttv, max.level = 1)
@@ -369,10 +369,10 @@ str(ttv, max.level = 1)
 #>  $ entity_id     : chr  "courier_001" "courier_002" "courier_003" "courier_004" ...
 #>  $ split         : chr  "test" "validation" "train" "test" ...
 #>  $ t0            : num  0 0 0 0 0 0 0 0 0 0 ...
-#>  $ t1            : num  2.377 0.742 1.338 3.288 0.761 ...
-#>  $ deltat        : num  2.377 0.742 1.338 3.288 0.761 ...
-#>  $ event_occurred: logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
-#>  $ event_type    : chr  "delivery_completed" "delivery_completed" "delivery_completed" "delivery_completed" ...
+#>  $ t1            : num  8 8 8 8 8 8 8 8 8 8 ...
+#>  $ deltat        : num  8 8 8 8 8 8 8 8 8 8 ...
+#>  $ event_occurred: logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
+#>  $ event_type    : chr  NA NA NA NA ...
 #>  $ censoring_time: num  8 8 8 8 8 8 8 8 8 8 ...
 #>  - attr(*, "spec")=List of 13
 #>   ..- attr(*, "class")= chr [1:2] "spec_event_process" "flux_spec"
@@ -391,14 +391,14 @@ head(ttv_test) |> kable(digits = 2)
 
 
 
-|   |entity_id   |split | t0|   t1| deltat|event_occurred |event_type         | censoring_time|
-|:--|:-----------|:-----|--:|----:|------:|:--------------|:------------------|--------------:|
-|1  |courier_001 |test  |  0| 2.38|   2.38|TRUE           |delivery_completed |              8|
-|4  |courier_004 |test  |  0| 3.29|   3.29|TRUE           |delivery_completed |              8|
-|17 |courier_017 |test  |  0| 2.33|   2.33|TRUE           |delivery_completed |              8|
-|21 |courier_021 |test  |  0| 2.34|   2.34|TRUE           |delivery_completed |              8|
-|23 |courier_023 |test  |  0| 0.77|   0.77|TRUE           |delivery_completed |              8|
-|25 |courier_025 |test  |  0| 0.87|   0.87|TRUE           |delivery_completed |              8|
+|   |entity_id   |split | t0| t1| deltat|event_occurred |event_type | censoring_time|
+|:--|:-----------|:-----|--:|--:|------:|:--------------|:----------|--------------:|
+|1  |courier_001 |test  |  0|  8|      8|FALSE          |NA         |              8|
+|4  |courier_004 |test  |  0|  8|      8|FALSE          |NA         |              8|
+|17 |courier_017 |test  |  0|  8|      8|FALSE          |NA         |              8|
+|21 |courier_021 |test  |  0|  8|      8|FALSE          |NA         |              8|
+|23 |courier_023 |test  |  0|  8|      8|FALSE          |NA         |              8|
+|25 |courier_025 |test  |  0|  8|      8|FALSE          |NA         |              8|
 
 
 
