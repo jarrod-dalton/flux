@@ -5,14 +5,16 @@
 # Generates a realistic synthetic operational log for a delivery fleet.
 # Produces the raw data that fluxPrepare ingests in Tutorial 04.
 #
-# Output: a list with five data frames:
+# Output: a list with six data frames:
 #   $couriers  - courier registry (entity_id, vehicle_type, home_zone)
 #   $battery   - irregular battery readings (entity_id, time, battery_pct)
 #   $gps       - GPS pings (vehicle_id, ping_at, lat, lon, speed_kmh)
 #                — deliberately uses different column names to showcase specs
-#   $events    - delivery completion events (entity_id, time, event_type)
+#   $events    - fleet events (entity_id, time, event_type)
+#                — includes dispatch_check and delivery_completed
 #   $shifts    - shift-level follow-up windows (entity_id, shift_id,
 #                shift_start, shift_end) — POSIXct timestamps
+#   $weather   - fleet-wide hourly weather (time, temperature_c, precip_type)
 #
 # Usage:
 #   source("tutorials/model/urban_delivery_data.R")
@@ -37,7 +39,7 @@
 #' @param seed       Optional seed for full reproducibility. If NULL, uses
 #'                   current RNG state.
 #'
-#' @return A list with components: couriers, battery, gps, events, shifts.
+#' @return A list with components: couriers, battery, gps, events, shifts, weather.
 generate_delivery_log <- function(n_couriers = 50,
                                   n_shifts = 10,
                                   params = list(),
@@ -68,16 +70,52 @@ generate_delivery_log <- function(n_couriers = 50,
     stringsAsFactors = FALSE
   )
 
+  # -- Generate fleet-wide weather table --
+  # Covers the full simulation window at hourly resolution.
+  # Cleveland January: baseline ~2°C, daily cycle ±5°C, random-walk drift.
+  # Precipitation via Markov chain (temporal correlation: stretches of rain/snow).
+
+  max_shift_length <- 8
+  total_hours <- n_shifts * (max_shift_length + shift_gap) + max_shift_length
+  weather_hours <- seq(0, total_hours, by = 1)
+  n_weather <- length(weather_hours)
+
+  # Temperature: daily sinusoidal + slow random-walk drift
+  daily_cycle  <- -5 * cos(2 * pi * weather_hours / 24)  # coldest at midnight
+  drift        <- cumsum(stats::rnorm(n_weather, 0, 0.3))
+  temperature  <- round(2 + daily_cycle + drift, 1)
+
+  # Precipitation: Markov chain — P(stay same) = 0.85, P(switch) = 0.15
+  precip <- character(n_weather)
+  precip[1] <- "none"
+  for (w in seq(2, n_weather)) {
+    if (stats::runif(1) < 0.85) {
+      precip[w] <- precip[w - 1]
+    } else {
+      # Switch: snow when cold, rain when warm
+      if (temperature[w] < 0) {
+        precip[w] <- sample(c("none", "snow"), 1, prob = c(0.4, 0.6))
+      } else {
+        precip[w] <- sample(c("none", "rain"), 1, prob = c(0.5, 0.5))
+      }
+    }
+  }
+
+  weather <- data.frame(
+    time         = fleet_origin + weather_hours * 3600,
+    temperature_c = temperature,
+    precip_type   = precip,
+    stringsAsFactors = FALSE
+  )
+
   # -- Simulate shifts using the delivery model --
   bundle <- delivery_bundle(params)
   eng    <- fluxCore::Engine$new(bundle = bundle)
   schema <- delivery_schema()
 
-  shift_length <- if (!is.null(params$shift_length_hours)) {
-    as.numeric(params$shift_length_hours)
-  } else {
-    8
-  }
+  # Variable shift durations: mix of 4, 6, and 8 hour shifts
+  shift_durations <- c(4, 6, 8)
+  shift_duration_probs <- c(0.3, 0.3, 0.4)
 
   all_obs    <- vector("list", n_couriers * n_shifts)
   all_gps    <- vector("list", n_couriers * n_shifts)
@@ -92,8 +130,38 @@ generate_delivery_log <- function(n_couriers = 50,
     for (s in seq_len(n_shifts)) {
       idx <- idx + 1L
 
+      # Variable shift duration
+      shift_length <- sample(shift_durations, 1, prob = shift_duration_probs)
+
       # Shift start in continuous hours; first shift starts at hour 0
       shift_start_hours <- (s - 1) * (shift_length + shift_gap)
+
+      # -- Look up weather at shift start --
+      wx_idx <- findInterval(shift_start_hours, weather_hours)
+      if (wx_idx < 1L) wx_idx <- 1L
+      shift_temp   <- temperature[wx_idx]
+      shift_precip <- precip[wx_idx]
+
+      # Weather-adjusted delivery rate: slower in rain/snow
+      delivery_rate_adj <- 1.0
+      if (shift_precip == "rain")  delivery_rate_adj <- 1.0 / 1.4
+      if (shift_precip == "snow")  delivery_rate_adj <- 1.0 / 3.0
+
+      # Weather-adjusted battery drain: faster in cold
+      cold_mult <- 1.0
+      if (shift_temp < 0)      cold_mult <- 1.5
+      else if (shift_temp < 5) cold_mult <- 1.2
+
+      shift_params <- utils::modifyList(params, list(
+        shift_length_hours         = shift_length,
+        delivery_rate_base         = 1.0 * delivery_rate_adj,
+        dispatch_battery_drop_mean = 2.5 * cold_mult,
+        delivery_battery_drop_mean = 4.0 * cold_mult
+      ))
+
+      # Rebuild bundle with weather-adjusted params for this shift
+      shift_bundle <- delivery_bundle(shift_params)
+      shift_eng    <- fluxCore::Engine$new(bundle = shift_bundle)
 
       # Starting battery: not always 100 (varies by vehicle wear)
       start_battery <- min(100, max(60, stats::rnorm(1, mean = 95, sd = 8)))
@@ -111,17 +179,18 @@ generate_delivery_log <- function(n_couriers = 50,
       )
 
       # Run the shift
-      out <- eng$run(entity, max_events = 500, return_observations = TRUE)
+      out <- shift_eng$run(entity, max_events = 500, return_observations = TRUE)
 
-      # -- Extract events (delivery completions only, for the event process) --
+      # -- Extract events (dispatch_check + delivery_completed) --
       ev <- out$events
       if (!is.null(ev) && nrow(ev) > 0L) {
-        delivery_rows <- ev[ev$event_type == "delivery_completed", , drop = FALSE]
-        if (nrow(delivery_rows) > 0L) {
+        keep_types <- c("dispatch_check", "delivery_completed")
+        event_rows <- ev[ev$event_type %in% keep_types, , drop = FALSE]
+        if (nrow(event_rows) > 0L) {
           all_events[[idx]] <- data.frame(
             entity_id  = courier_id,
-            time       = fleet_origin + delivery_rows$time * 3600,
-            event_type = "delivery_completed",
+            time       = fleet_origin + event_rows$time * 3600,
+            event_type = event_rows$event_type,
             stringsAsFactors = FALSE
           )
         }
@@ -213,7 +282,8 @@ generate_delivery_log <- function(n_couriers = 50,
     battery  = battery,
     gps      = gps,
     events   = events,
-    shifts   = shifts
+    shifts   = shifts,
+    weather  = weather
   )
 }
 

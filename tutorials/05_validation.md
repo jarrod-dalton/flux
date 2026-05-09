@@ -77,12 +77,12 @@ Each row in `ttv$test` represents one courier × one shift interval:
 ``` r
 head(ttv[ttv$split == "test", ])
 #>      entity_id split t0 t1 deltat event_occurred event_type censoring_time
-#> 1  courier_001  test  0  8      8          FALSE       <NA>              8
-#> 4  courier_004  test  0  8      8          FALSE       <NA>              8
-#> 17 courier_017  test  0  8      8          FALSE       <NA>              8
-#> 21 courier_021  test  0  8      8          FALSE       <NA>              8
-#> 23 courier_023  test  0  8      8          FALSE       <NA>              8
-#> 25 courier_025  test  0  8      8          FALSE       <NA>              8
+#> 1  courier_001  test  0  4      4          FALSE       <NA>              4
+#> 4  courier_004  test  0  6      6          FALSE       <NA>              6
+#> 17 courier_017  test  0  6      6          FALSE       <NA>              6
+#> 21 courier_021  test  0  4      4          FALSE       <NA>              4
+#> 23 courier_023  test  0  4      4          FALSE       <NA>              4
+#> 25 courier_025  test  0  6      6          FALSE       <NA>              6
 cat("Test-set intervals:", sum(ttv$split == "test"), "\n")
 #> Test-set intervals: 6
 cat("Outcome rate:      ", round(mean(ttv$event_occurred[ttv$split == "test"]), 3), "\n")

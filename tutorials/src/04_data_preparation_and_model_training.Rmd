@@ -1,9 +1,9 @@
 ---
-title: "Preparing operational data"
+title: "Data preparation and model training"
 maturity: "draft"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Preparing operational data}
+  %\VignetteIndexEntry{Data preparation and model training}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -13,6 +13,8 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 suppressPackageStartupMessages({
   library(fluxCore)
   library(fluxPrepare)
+  library(dplyr)
+  library(survival)
   library(knitr)
 })
 ```
@@ -20,17 +22,21 @@ suppressPackageStartupMessages({
 Tutorials 01–03 ran the delivery model forward from known starting states.
 In practice, the starting states come from **operational data** — sensor logs,
 transaction records, GPS pings — that must be cleaned, aligned, and split before
-the model can consume them.
+the model can consume them. And the model parameters themselves are typically
+**learned from data**, not hand-tuned.
 
 This tutorial introduces `fluxPrepare`: the package that transforms messy
 real-world observations into the structured train/test/validation (TTV) format
-that the forecast and validation tools expect. By the end you will be able to:
+that the forecast and validation tools expect. We then fit two models from the
+TTV datasets and wire them into a ModelBundle. By the end you will be able to:
 
 - generate a synthetic operational log for the delivery fleet,
 - prepare observations and events into canonical format,
 - split by entity (no data leakage),
-- build a TTV event process (anchored intervals with outcomes),
-- reconstruct courier state at a forecast anchor time.
+- build TTV datasets for event-process and state-transition models,
+- join fleet-wide context (weather) to interval-level datasets,
+- fit a parametric survival model and a linear regression from TTV data,
+- wire fitted models into `propose_events()` and `transition()` closures.
 
 ## Why preparation is its own step
 
@@ -100,13 +106,12 @@ a realistic fleet log — the kind of data you'd get from a production system:
 ```{r}
 set.seed(42)
 ops <- generate_delivery_log(
-  n_couriers = 30,
-  n_shifts   = 8,
-  params     = list(shift_length_hours = 8)
+  n_couriers = 100,
+  n_shifts   = 8
 )
 ```
 
-The result has five tables:
+The result has six tables:
 
 ```{r}
 str(ops, max.level = 1)
@@ -115,8 +120,12 @@ str(ops, max.level = 1)
 - **`$couriers`** — one row per courier: id, vehicle type, home zone.
 - **`$battery`** — irregular battery readings (sensor pings per courier).
 - **`$gps`** — GPS location pings (from the vehicle tracking system).
-- **`$events`** — delivery completion timestamps.
+- **`$events`** — fleet events: `dispatch_check` and `delivery_completed`.
 - **`$shifts`** — shift-level follow-up windows, with real `POSIXct` timestamps.
+  Shift durations vary (4, 6, or 8 hours).
+- **`$weather`** — fleet-wide hourly weather readings: temperature and
+  precipitation type. These are not entity-level observations — they apply
+  to the entire fleet and will be joined to TTV datasets later.
 
 Let's look at each:
 
@@ -137,7 +146,15 @@ head(ops$events) |> kable(digits = 2)
 ```
 
 ```{r}
+table(ops$events$event_type)
+```
+
+```{r}
 head(ops$shifts) |> kable()
+```
+
+```{r}
+head(ops$weather) |> kable(digits = 1)
 ```
 
 Notice that `battery` and `gps` come from different systems and use different
@@ -159,7 +176,7 @@ courier_003's Tuesday shift.
 ```{r}
 splits <- generate_splits(ops$couriers, train_frac = 0.6, test_frac = 0.2,
                           seed = 123)
-splits |> kable()
+table(splits$split)
 ```
 
 If you bring your own split table, `prepare_splits()` validates it (unique
@@ -168,7 +185,6 @@ already produces a valid table, so we pass it directly to downstream functions.
 
 ```{r}
 splits_prep <- prepare_splits(splits)
-str(splits_prep)
 ```
 
 ## `prepare_events()` — canonical event format
@@ -272,15 +288,14 @@ Both produce interval tables with `t0`, `t1`, `deltat`, and a split label.
 The difference is where the intervals come from and what the outcome column
 represents.
 
-## Event-process TTV
+## Event-process TTV → `delivery_mod`
 
-The question for Tutorial 05 (validation) is: **given a courier's
-state at time t₀, what is the probability of a delivery completion within the
-next H hours?**
+The question: **given a courier's state at time t₀, what is the probability of
+a delivery completion within the next H hours?**
 
-To answer this, we need anchored intervals: for each courier in the test set,
-define a start time (t₀), a horizon (H), and record whether the event actually
-happened. This is what `build_ttv_event_process()` constructs.
+To answer this, we need anchored intervals: for each courier, define a start
+time (t₀), a horizon (H), and record whether the event actually happened. This
+is what `build_ttv_event_process()` constructs.
 
 First, define a spec for the event process:
 
@@ -297,7 +312,7 @@ delivery_ep_spec <- spec_event_process(
 Then build the TTV:
 
 ```{r}
-ttv <- build_ttv_event_process(
+delivery_mod_ttv <- build_ttv_event_process(
   events       = events_prep,
   observations = obs_prep,
   splits       = splits_prep,
@@ -305,47 +320,34 @@ ttv <- build_ttv_event_process(
   followup     = ops$shifts,
   time_spec    = ts
 )
-
-str(ttv, max.level = 1)
 ```
 
-The result is a single data frame with a `split` column indicating which rows
-belong to train, test, or validation.
+Each row is one entity × one follow-up interval. Consecutive rows for the same
+courier chain together: the first row's `t1` becomes the next row's `t0`.
 
-```{r}
-ttv_train <- ttv[ttv$split == "train", ]
-ttv_test  <- ttv[ttv$split == "test", ]
-ttv_test |> kable(digits = 2)
-```
-
-Each row is one entity × one follow-up interval. Notice how consecutive rows
-for the same courier chain together: the first row's `t1` becomes the next
-row's `t0`. Columns: `entity_id`, `t0` (anchor time), `t1` (first event
-time or censoring), `deltat` (time to event/censoring), `event_occurred`,
-and `censoring_time`.
-
-## Reconstructing state at t₀
-
-To forecast from t₀, the model needs to know the courier's state *at that moment*.
-`reconstruct_state_at()` looks backward through the observation history and
-recovers the most recent measurement of each variable prior to t₀.
+Reconstruct battery state at each anchor:
 
 ```{r}
 state_at_t0 <- reconstruct_state_at(
-  anchors      = ttv_test,
+  anchors      = delivery_mod_ttv,
   observations = obs_prep,
   vars         = "battery_pct",
   time_spec    = ts
 )
 
-head(state_at_t0) |> kable(digits = 2)
+delivery_mod_ttv$battery_pct <- state_at_t0$battery_pct
 ```
 
-Each row tells you: "for courier X at anchor time t₀, the last observed
-battery_pct was Y." This is the starting state you feed to the Engine in
-Tutorial 05 when running forecasts from the test set.
+Split into train/test:
 
-## State-transition TTV
+```{r}
+delivery_mod_train <- delivery_mod_ttv[delivery_mod_ttv$split == "train", ]
+delivery_mod_test  <- delivery_mod_ttv[delivery_mod_ttv$split == "test", ]
+cat("Train rows:", nrow(delivery_mod_train), "\n")
+cat("Test rows: ", nrow(delivery_mod_test), "\n")
+```
+
+## State-transition TTV → `battery_mod`
 
 Sometimes the question isn't "did an event happen?" but "what does the next
 measurement look like?" — for example, predicting the next battery reading
@@ -354,7 +356,7 @@ observation times in a chosen group, reconstructs predictors at t₀, and
 attaches the outcome values observed at t₁.
 
 ```{r}
-ttv_state <- build_ttv_state(
+battery_mod_ttv <- build_ttv_state(
   observations    = obs_prep,
   splits          = splits_prep,
   outcome_group   = "battery",
@@ -366,47 +368,232 @@ ttv_state <- build_ttv_state(
   time_spec       = ts
 )
 
-str(ttv_state, max.level = 1)
+# Keep only the columns we need
+battery_mod_ttv <- battery_mod_ttv[, c("entity_id", "split", "t0", "deltat",
+                                        "battery_pct", "battery_pct.1")]
+names(battery_mod_ttv)[names(battery_mod_ttv) == "battery_pct.1"] <- "outcome_battery_pct"
 ```
 
 ```{r}
-ttv_state_test <- ttv_state[ttv_state$split == "test", ]
-head(ttv_state_test, 8) |> kable(digits = 2)
+battery_mod_train <- battery_mod_ttv[battery_mod_ttv$split == "train", ]
+battery_mod_test  <- battery_mod_ttv[battery_mod_ttv$split == "test", ]
+cat("Train rows:", nrow(battery_mod_train), "\n")
+cat("Test rows: ", nrow(battery_mod_test), "\n")
 ```
 
-Each row is a consecutive battery → battery interval. The `battery_pct` column
-is the predictor (value at t₀); the `outcome_battery_pct` column is the outcome
-(value at t₁). Unlike the event-process TTV, there is no separate
-`reconstruct_state_at()` call — `build_ttv_state()` does reconstruction
-internally.
+Each row is a consecutive battery → battery interval. `battery_pct` is the
+predictor (value at t₀); `outcome_battery_pct` is the outcome (value at t₁).
+Unlike the event-process TTV, there is no separate `reconstruct_state_at()`
+call — `build_ttv_state()` does reconstruction internally.
+
+## Joining fleet-wide context: weather
+
+Not everything is entity-level observation data. Fleet-wide context like
+weather applies to all couriers simultaneously and is joined to TTV intervals
+based on timestamps, not through `prepare_observations()`.
+
+We convert weather timestamps to model time, then use an inequality join to
+attach the most recent weather reading at or before each interval's t₀:
+
+```{r}
+weather_mod <- ops$weather |>
+  mutate(weather_time = as.numeric(difftime(time, fleet_origin, units = "hours"))) |>
+  select(weather_time, temperature_c, precip_type)
+```
+
+Join to both datasets:
+
+```{r}
+delivery_mod_train <- delivery_mod_train |>
+  left_join(weather_mod, join_by(closest(t0 >= weather_time))) |>
+  select(-weather_time) |>
+  mutate(
+    precip_rain = as.integer(precip_type == "rain"),
+    precip_snow = as.integer(precip_type == "snow"),
+    rush_hour   = as.integer((t0 %% 24) >= 7 & (t0 %% 24) <= 9 |
+                             (t0 %% 24) >= 16 & (t0 %% 24) <= 19)
+  )
+
+delivery_mod_test <- delivery_mod_test |>
+  left_join(weather_mod, join_by(closest(t0 >= weather_time))) |>
+  select(-weather_time) |>
+  mutate(
+    precip_rain = as.integer(precip_type == "rain"),
+    precip_snow = as.integer(precip_type == "snow"),
+    rush_hour   = as.integer((t0 %% 24) >= 7 & (t0 %% 24) <= 9 |
+                             (t0 %% 24) >= 16 & (t0 %% 24) <= 19)
+  )
+```
+
+```{r}
+head(delivery_mod_train) |> kable(digits = 2)
+```
+
+```{r}
+battery_mod_train <- battery_mod_train |>
+  left_join(weather_mod, join_by(closest(t0 >= weather_time))) |>
+  select(-weather_time)
+
+battery_mod_test <- battery_mod_test |>
+  left_join(weather_mod, join_by(closest(t0 >= weather_time))) |>
+  select(-weather_time)
+```
+
+```{r}
+head(battery_mod_train) |> kable(digits = 2)
+```
+
+The weather covariates are now available as predictors in both datasets.
+`rush_hour` is derived from the clock hour of t₀ — a pragmatic feature, though
+note it is not causally embedded in the simulation (the Engine does not
+currently vary dispatch rates by time of day).
+
+# Part 2: Model Training
+
+With TTV datasets in hand, we can fit models directly from data rather than
+hand-tuning parameters. We'll train two models:
+
+1. A **parametric survival model** for time-to-delivery-completion.
+2. A **linear regression** for battery state transition.
+
+Then we wire each into a `propose_events()` or `transition()` closure — the
+same interface the Engine expects.
+
+## Survival model: time to delivery completion
+
+An exponential survival model estimates the rate at which deliveries complete
+as a function of covariates. The exponential distribution matches what the
+Engine uses internally (`rexp(1, rate)` in `propose_events()`), so the fitted
+rate translates directly to event proposals.
+
+```{r}
+delivery_fit <- survreg(
+  Surv(deltat, event_occurred) ~ battery_pct + precip_rain + precip_snow + rush_hour,
+  data = delivery_mod_train,
+  dist = "exponential"
+)
+
+summary(delivery_fit)
+```
+
+The coefficients are on the log-time scale (positive = longer time to event =
+slower). Look for the embedded effects from the data generator: rain slows
+deliveries (~1.4×), snow slows them substantially (~3×), and low battery
+reduces the effective delivery rate.
+
+## Linear regression: battery state transition
+
+A linear model predicting the next battery reading from the current one, plus
+temperature and interval duration:
+
+```{r}
+battery_fit <- lm(
+  outcome_battery_pct ~ battery_pct + temperature_c + deltat + temperature_c:deltat,
+  data = battery_mod_train
+)
+
+summary(battery_fit)
+```
+
+The `temperature_c:deltat` interaction captures the key mechanism: colder
+weather drains battery faster, and the effect accumulates over longer intervals.
+
+## Wiring models into a ModelBundle
+
+In Tutorial 01, `propose_events()` and `transition()` were hand-coded. Here
+we wire *fitted* models into the same interface. Each function is a closure
+that captures the fitted model object in its environment:
+
+### propose_events: delivery rate from survival model
+
+```{r}
+propose_delivery <- function(entity, param_ctx = NULL, process_ids = NULL,
+                             current_proposals = NULL) {
+  t_now <- entity$last_time
+  s <- entity$as_list(c("battery_pct"))
+
+  # Build a newdata frame for predict()
+  newdata <- data.frame(
+    battery_pct = as.numeric(s$battery_pct),
+    precip_rain = 0L,  # would come from weather context in production
+    precip_snow = 0L,
+    rush_hour   = 0L
+  )
+
+  # survreg with dist="exponential": predict() returns log(expected time)
+  log_expected_time <- predict(delivery_fit, newdata = newdata, type = "lp")
+  rate <- exp(-log_expected_time)
+
+  list(
+    delivery = list(
+      time_next  = t_now + stats::rexp(1, rate = max(1e-6, rate)),
+      event_type = "delivery_completed"
+    )
+  )
+}
+```
+
+### transition: battery update from linear model
+
+```{r}
+transition_battery <- function(entity, event, param_ctx = NULL) {
+  s <- entity$as_list(c("battery_pct"))
+  battery_now <- as.numeric(s$battery_pct)
+  deltat <- entity$last_time - entity$events$time[max(1, nrow(entity$events) - 1)]
+
+  newdata <- data.frame(
+    battery_pct   = battery_now,
+    temperature_c = 2,  # would come from weather context in production
+    deltat        = max(0.01, as.numeric(deltat))
+  )
+
+  predicted <- predict(battery_fit, newdata = newdata)
+  # Add small noise and clamp to [0, 100]
+  noisy <- predicted + stats::rnorm(1, 0, 0.5)
+
+  list(battery_pct = max(0, min(100, noisy)))
+}
+```
+
+These closures capture `delivery_fit` and `battery_fit` in their lexical
+environments — no global variable lookup, no serialization of the full model
+inside the bundle. In production, you would strip the fitted objects to their
+prediction-relevant components using the
+[burgle](https://github.com/ClevelandClinicQHS/burgle) package:
+
+```r
+# Not run — requires: install.packages("burgle")
+delivery_fit_lean <- burgle::burgle(delivery_fit)
+battery_fit_lean  <- burgle::burgle(battery_fit)
+# Same predict() interface, fraction of the memory
+predict(delivery_fit_lean, newdata = new_data)
+```
 
 ## Putting it together
 
-The preparation pipeline flow:
+The full pipeline from raw data to trained model:
 
 ```
-Raw ops log
+Raw ops log (couriers, battery, gps, events, shifts, weather)
   ├── prepare_events()        → canonical events
   ├── prepare_observations()  → canonical obs
   ├── generate_splits()       → entity-level splits
   │
-  ├── build_ttv_event_process()  → event intervals + outcomes
-  │     └── reconstruct_state_at() → predictors at each t₀
+  ├── build_ttv_event_process()  → delivery_mod (event intervals)
+  │     ├── reconstruct_state_at() → battery_pct at each t₀
+  │     ├── left_join(weather)     → temperature, precip, rush_hour
+  │     └── survreg()              → propose_delivery()
   │
-  └── build_ttv_state()          → state-transition intervals
-                                    (predictors reconstructed internally)
+  └── build_ttv_state()          → battery_mod (state intervals)
+        ├── left_join(weather)     → temperature
+        └── lm()                   → transition_battery()
 ```
-
-Everything downstream — forecasting, validation — consumes these outputs.
-The preparation step is where you catch data quality issues (missing
-observations, impossible values, follow-up gaps) before they corrupt your
-predictions.
 
 ## Summary
 
 | Function | Purpose |
 |----------|---------|
-| `generate_delivery_log()` | Synthetic data generator (uses the delivery model) |
+| `generate_delivery_log()` | Synthetic data generator (model + weather + variable shifts) |
 | `generate_splits()` | Entity-level train/test/validation split |
 | `prepare_events()` | Standardize event table columns |
 | `prepare_observations()` | Standardize observation tables with specs |
@@ -414,6 +601,7 @@ predictions.
 | `build_ttv_event_process()` | Event intervals with outcomes, split by TTV |
 | `build_ttv_state()` | State-transition intervals with predictors + outcomes |
 | `reconstruct_state_at()` | Recover predictor state at each anchor time |
+| `survreg()` / `lm()` | Fit models from TTV training data |
 
 **Next:** [05_validation.md](05_validation.md) — forecast from the test-set
 baselines and compare predicted vs observed outcomes using `fluxValidation`.

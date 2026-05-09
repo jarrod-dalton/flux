@@ -19,7 +19,7 @@ No code; just the ideas you need before touching the tutorials below.
 | 01 | `01_core_engine_scaffold.md` | Core engine scaffold — schema, Entity, ModelBundle, Engine, variable blocks, single-entity runs |
 | 02 | `02_cohort_forecast.md` | Cohort forecasting — running many independent entities, aggregating distributions |
 | 03 | `03_decisions_policy.md` | Decision points and policy — DecisionPoint, action handlers, policy functions, trajectory records, counterfactual comparison |
-| 04 | `04_prepare_operational_data.md` | Data preparation — generating synthetic operational logs, train/test/validation splits with fluxPrepare |
+| 04 | `04_data_preparation_and_model_training.md` | Data preparation and model training — synthetic logs, TTV splits, weather covariates, survival + regression models |
 | 05 | `05_validation.md` | Validation — observed grids, masks, forecast-vs-observed comparison with fluxValidation |
 
 Source `.Rmd` files live in `tutorials/src/`; rendered GitHub-viewable `.md`

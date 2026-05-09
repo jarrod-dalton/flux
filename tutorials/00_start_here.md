@@ -221,7 +221,7 @@ The tutorials that follow this introduction move from concepts to working code. 
 | 01 | [Core engine scaffold](01_core_engine_scaffold.md) | Entity, schema, ModelBundle, Engine. Build and run a simulation from scratch. Variable blocks, batch cohort runs, policy/intervention layering. |
 | 02 | [Cohort simulation and forecasting](02_cohort_forecast.md) | Scale to many entities with `run_cohort()`. Use fluxForecast to compute event-probability curves and trajectory quantiles. |
 | 03 | [Decisions and policy](03_decisions_policy.md) | Add DecisionPoints to a model. Author and compare policies. Capture trajectory records for downstream analysis. |
-| 04 | [Preparing operational data](04_prepare_operational_data.md) | Use fluxPrepare to turn irregular longitudinal records into model-ready TTV datasets with explicit time semantics and as-of state reconstruction. |
+| 04 | [Data preparation and model training](04_data_preparation_and_model_training.md) | Use fluxPrepare to turn irregular longitudinal records into model-ready TTV datasets, then fit and wire models into a ModelBundle. |
 | 05 | [Validation](05_validation.md) | Build observation grids, define at-risk denominators, and compare predicted vs. observed event risk using fluxValidation. |
 
 **Recommended order for newcomers**: Read this page first, then work through 01 → 02 → 03 → 04 → 05 in sequence.

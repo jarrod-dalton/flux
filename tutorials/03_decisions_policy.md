@@ -745,6 +745,6 @@ the rest of the flux ecosystem builds on:
 | Same seed, different policy | Isolates the causal effect of the policy on outcomes |
 | Multiple DPs + arbitration | Multiple DPs can fire in one event cycle; earliest `time_next` wins |
 
-**Next:** [04_prepare_operational_data.md](04_prepare_operational_data.md) —
+**Next:** [04_data_preparation_and_model_training.md](04_data_preparation_and_model_training.md) —
 generate synthetic operational logs and prepare them into train/test/validation
 format with `fluxPrepare`.

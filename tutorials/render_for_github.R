@@ -75,7 +75,7 @@ knit_inputs <- c(
   "tutorials/src/01_core_engine_scaffold.Rmd",
   "tutorials/src/02_cohort_forecast.Rmd",
   "tutorials/src/03_decisions_policy.Rmd",
-  "tutorials/src/04_prepare_operational_data.Rmd",
+  "tutorials/src/04_data_preparation_and_model_training.Rmd",
   "tutorials/src/05_validation.Rmd"
 )
 
