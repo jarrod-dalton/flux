@@ -66,9 +66,9 @@ The `fluxPrepare` pipeline has three stages:
 2. **Segment** (`spec_event_process()` + segmentation helpers) — define how
    follow-up is divided into start–stop intervals. Segmentation means: "when
    meaningful new information arrives, start a new interval."
-3. **Build** (`build_ttv_event_process()`, `reconstruct_state_at()`) — produce
-   rows suitable for model training, with entity-level train/test/validation
-   splits.
+3. **Build** (`build_ttv_event_process()`) — produce rows suitable for model
+   training, with predictor reconstruction and entity-level
+   train/test/validation splits.
 
 ## Load the model and data generator
 
@@ -418,7 +418,7 @@ The basic flux model loop is:
 
 1. **Generate the next event** — draw from a time-to-event model.
 2. **Check for decisions** — if the event is a decision point, take action.
-3. **Update entity state** — advance the entity to the event time.
+3. **Update entity state** — advance the entity to the event time and update the values of its state variables.
 4. **Check state-triggered decisions** — if the new state triggers a rule, act.
 5. Go back to (1).
 
@@ -430,8 +430,9 @@ current state, when does the next event happen?*
 The `spec_event_process()` and `build_ttv_event_process()` functions in
 `fluxPrepare` exist to ease the process of training these probabilistic
 time-to-event models. They transform raw operational data into the
-interval-censored format that survival models expect, with covariates
-reconstructed at each anchor time.
+interval-censored format that survival models expect. When you specify
+`predictor_vars` in the spec, the builder reconstructs covariate values at
+each interval's t₀ automatically — no separate reconstruction step needed.
 
 ### Defining the event-process spec
 
@@ -445,7 +446,12 @@ is what `build_ttv_event_process()` constructs.
 First, define a spec for the event process. The `split_on_groups = "battery"`
 argument tells the builder to segment follow-up at battery observation times —
 creating a new interval each time a fresh battery reading arrives. This produces
-richer training data with time-varying covariates:
+richer training data with time-varying covariates.
+
+The `predictor_vars` argument tells the builder to reconstruct `battery_pct` at
+each interval's t₀ using `reconstruct_state_at()` internally. Setting
+`row_policy = "drop_incomplete"` drops intervals where reconstruction returns
+`NA` (e.g., the first interval before any battery reading arrives):
 
 
 ``` r
@@ -455,7 +461,9 @@ delivery_ep_spec <- spec_event_process(
   t0_strategy     = "followup_start",
   fu_start_col    = "shift_start",
   fu_end_col      = "shift_end",
-  split_on_groups = "battery"
+  split_on_groups = "battery",
+  predictor_vars  = "battery_pct",
+  row_policy      = "drop_incomplete"
 )
 ```
 
@@ -504,9 +512,9 @@ delivery_mod <- build_ttv_event_process(
 )
 
 cat("Rows:", nrow(delivery_mod), "\n")
-#> Rows: 517
+#> Rows: 417
 cat("Intervals per entity:", range(table(delivery_mod$entity_id)), "\n")
-#> Intervals per entity: 1 21
+#> Intervals per entity: 1 20
 ```
 
 Each row is one entity × one interval. The `split_on_groups = "battery"`
@@ -514,46 +522,28 @@ argument created multiple intervals per entity, segmented at battery
 observation times. `event_occurred` is TRUE for the interval containing
 the event, FALSE for all preceding intervals.
 
-The function `reconstruct_state_at()` can recover predictor values at each
-anchor. Here we use it to attach battery level at each interval's t₀:
+Because we specified `predictor_vars = "battery_pct"` in the spec, the builder
+automatically reconstructed battery state at each interval's t₀. And because
+we set `row_policy = "drop_incomplete"`, intervals before the first battery
+reading (where reconstruction would return `NA`) were already removed:
 
 
 ``` r
-state_at_t0 <- reconstruct_state_at(
-  anchors      = delivery_mod,
-  observations = obs_prep,
-  vars         = "battery_pct",
-  time_spec    = ts
-)
-
-delivery_mod$battery_pct <- state_at_t0$battery_pct
-```
-
-The first interval per entity starts at follow-up start (before any battery
-observation), so `battery_pct` is `NA` there. We drop those rows:
-
-
-``` r
-delivery_mod <- delivery_mod[!is.na(delivery_mod$battery_pct), ]
-cat("Rows after dropping NA battery:", nrow(delivery_mod), "\n")
-#> Rows after dropping NA battery: 417
-```
-
-
-``` r
+cat("Rows:", nrow(delivery_mod), "\n")
+#> Rows: 417
 head(delivery_mod) |> kable(digits = 2)
 ```
 
 
 
-|   |entity_id   |split      |   t0|   t1| deltat|event_occurred |event_type         | censoring_time| battery_pct|
-|:--|:-----------|:----------|----:|----:|------:|:--------------|:------------------|--------------:|-----------:|
-|2  |courier_001 |validation | 0.09| 0.30|   0.20|FALSE          |NA                 |            144|        88.2|
-|3  |courier_001 |validation | 0.30| 0.56|   0.27|FALSE          |NA                 |            144|        88.6|
-|4  |courier_001 |validation | 0.56| 0.77|   0.21|FALSE          |NA                 |            144|        89.5|
-|5  |courier_001 |validation | 0.77| 1.96|   1.19|FALSE          |NA                 |            144|        89.1|
-|6  |courier_001 |validation | 1.96| 2.23|   0.28|FALSE          |NA                 |            144|        85.8|
-|7  |courier_001 |validation | 2.23| 2.68|   0.44|TRUE           |delivery_completed |            144|        85.1|
+|entity_id   |split      |   t0|   t1| deltat|event_occurred |event_type         | censoring_time| battery_pct|
+|:-----------|:----------|----:|----:|------:|:--------------|:------------------|--------------:|-----------:|
+|courier_001 |validation | 0.09| 0.30|   0.20|FALSE          |NA                 |            144|        88.2|
+|courier_001 |validation | 0.30| 0.56|   0.27|FALSE          |NA                 |            144|        88.6|
+|courier_001 |validation | 0.56| 0.77|   0.21|FALSE          |NA                 |            144|        89.5|
+|courier_001 |validation | 0.77| 1.96|   1.19|FALSE          |NA                 |            144|        89.1|
+|courier_001 |validation | 1.96| 2.23|   0.28|FALSE          |NA                 |            144|        85.8|
+|courier_001 |validation | 2.23| 2.68|   0.44|TRUE           |delivery_completed |            144|        85.1|
 
 
 
@@ -608,8 +598,8 @@ head(battery_mod) |> kable(digits = 2)
 
 Each row is a consecutive battery → battery interval. `battery_pct` is the
 predictor (value at t₀); `outcome_battery_pct` is the outcome (value at t₁).
-Unlike the event-process TTV, there is no separate `reconstruct_state_at()`
-call — `build_ttv_state()` does reconstruction internally.
+Both `build_ttv_event_process()` and `build_ttv_state()` handle predictor
+reconstruction internally when `predictor_vars` is specified in the spec.
 
 ## Joining fleet-wide context: weather
 
@@ -637,14 +627,14 @@ head(delivery_mod) |> kable(digits = 2)
 
 
 
-|   |entity_id   |split      |   t0|   t1| deltat|event_occurred |event_type         | censoring_time| battery_pct|
-|:--|:-----------|:----------|----:|----:|------:|:--------------|:------------------|--------------:|-----------:|
-|2  |courier_001 |validation | 0.09| 0.30|   0.20|FALSE          |NA                 |            144|        88.2|
-|3  |courier_001 |validation | 0.30| 0.56|   0.27|FALSE          |NA                 |            144|        88.6|
-|4  |courier_001 |validation | 0.56| 0.77|   0.21|FALSE          |NA                 |            144|        89.5|
-|5  |courier_001 |validation | 0.77| 1.96|   1.19|FALSE          |NA                 |            144|        89.1|
-|6  |courier_001 |validation | 1.96| 2.23|   0.28|FALSE          |NA                 |            144|        85.8|
-|7  |courier_001 |validation | 2.23| 2.68|   0.44|TRUE           |delivery_completed |            144|        85.1|
+|entity_id   |split      |   t0|   t1| deltat|event_occurred |event_type         | censoring_time| battery_pct|
+|:-----------|:----------|----:|----:|------:|:--------------|:------------------|--------------:|-----------:|
+|courier_001 |validation | 0.09| 0.30|   0.20|FALSE          |NA                 |            144|        88.2|
+|courier_001 |validation | 0.30| 0.56|   0.27|FALSE          |NA                 |            144|        88.6|
+|courier_001 |validation | 0.56| 0.77|   0.21|FALSE          |NA                 |            144|        89.5|
+|courier_001 |validation | 0.77| 1.96|   1.19|FALSE          |NA                 |            144|        89.1|
+|courier_001 |validation | 1.96| 2.23|   0.28|FALSE          |NA                 |            144|        85.8|
+|courier_001 |validation | 2.23| 2.68|   0.44|TRUE           |delivery_completed |            144|        85.1|
 
 
 
@@ -963,8 +953,7 @@ Raw ops log (couriers, battery, gps, events, shifts, weather)
   ├── prepare_observations()  → canonical obs
   ├── generate_splits()       → entity-level splits
   │
-  ├── build_ttv_event_process()  → delivery_mod (event intervals)
-  │     ├── reconstruct_state_at() → battery_pct at each t₀
+  ├── build_ttv_event_process()  → delivery_mod (event intervals + battery_pct)
   │     ├── left_join(weather)     → temperature, precip
   │     ├── flexsurvreg()          → delivery_fit
   │     └── burgle()               → delivery_lean → propose_delivery()
@@ -984,9 +973,8 @@ Raw ops log (couriers, battery, gps, events, shifts, weather)
 | `prepare_events()` | Standardize event table columns |
 | `prepare_observations()` | Standardize observation tables with specs |
 | `spec_event_process()` | Define the event process to model |
-| `build_ttv_event_process()` | Event intervals with outcomes, split by TTV |
+| `build_ttv_event_process()` | Event intervals with outcomes and reconstructed predictors |
 | `build_ttv_state()` | State-transition intervals with predictors + outcomes |
-| `reconstruct_state_at()` | Recover predictor state at each anchor time |
 | `flexsurvreg()` / `lm()` | Fit models from TTV training data |
 | `burgle()` | Strip fitted models to prediction-relevant components |
 

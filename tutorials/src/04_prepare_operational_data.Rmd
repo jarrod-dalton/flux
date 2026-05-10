@@ -1,0 +1,419 @@
+---
+title: "Preparing operational data"
+maturity: "draft"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Preparing operational data}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+suppressPackageStartupMessages({
+  library(fluxCore)
+  library(fluxPrepare)
+  library(knitr)
+})
+```
+
+Tutorials 01–03 ran the delivery model forward from known starting states.
+In practice, the starting states come from **operational data** — sensor logs,
+transaction records, GPS pings — that must be cleaned, aligned, and split before
+the model can consume them.
+
+This tutorial introduces `fluxPrepare`: the package that transforms messy
+real-world observations into the structured train/test/validation (TTV) format
+that the forecast and validation tools expect. By the end you will be able to:
+
+- generate a synthetic operational log for the delivery fleet,
+- prepare observations and events into canonical format,
+- split by entity (no data leakage),
+- build a TTV event process (anchored intervals with outcomes),
+- reconstruct courier state at a forecast anchor time.
+
+## Why preparation is its own step
+
+The flux ecosystem is built around process-explicit, event-driven models. In
+this framework we do not start with regression models applied directly to raw
+operational tables. Instead, we explicitly define the processes by which entity
+state evolves over time: events occur, state variables update in response, and
+entities enter and exit follow-up.
+
+This distinction matters because real operational data lives on **multiple
+clocks simultaneously**. Battery readings arrive from irregular sensor pings.
+Delivery completions happen at unpredictable times. Shift boundaries are
+deterministic but vary per courier. Traditional tabular analyses often flatten
+this complexity by imposing an implicit time grid or silently carrying forward
+stale values — choices that encode assumptions whether or not we acknowledge
+them.
+
+The flux approach makes time, events, and state *explicit*, and surfaces
+modeling assumptions rather than burying them. Preparation is where those
+assumptions are specified.
+
+### Core concepts
+
+- **Anchors** are the time points at which entity state is reconstructed.
+  Rather than imposing a regular grid (e.g., hourly snapshots), anchors can be
+  defined at clinically or operationally meaningful moments — event
+  occurrences, measurement arrivals, decision points, or shift starts. This keeps training data
+  aligned with the structure the simulation enforces.
+
+- **Intervals** are the spans between consecutive anchors. Each interval has a
+  start anchor, an end anchor, a duration, and zero or more events occurring
+  within it. Rows in a TTV dataset are defined at the interval level:
+  covariates represent state at the start, outcomes represent events within or
+  at the end.
+
+- **As-of state** means that at each anchor, entity state is reconstructed
+  using only data available *as of that time*, subject to explicit recency and
+  validity rules (`lookback`, `staleness`). This avoids leaking future
+  information into training rows.
+
+### The Prepare workflow: standardize → segment → build
+
+The `fluxPrepare` pipeline has three stages:
+
+1. **Standardize** (`prepare_events()`, `prepare_observations()`) — convert
+   heterogeneous raw tables into a consistent internal format with a shared
+   time scale.
+2. **Segment** (`spec_event_process()` + segmentation helpers) — define how
+   follow-up is divided into start–stop intervals. Segmentation means: "when
+   meaningful new information arrives, start a new interval."
+3. **Build** (`build_ttv_event_process()`, `reconstruct_state_at()`) — produce
+   rows suitable for model training, with entity-level train/test/validation
+   splits.
+
+## Load the model and data generator
+
+```{r}
+source("tutorials/model/urban_delivery.R")
+source("tutorials/model/urban_delivery_data.R")
+```
+
+## Generate synthetic operational data
+
+`generate_delivery_log()` runs the delivery model under the hood to produce
+a realistic fleet log — the kind of data you'd get from a production system:
+
+```{r}
+set.seed(42)
+ops <- generate_delivery_log(
+  n_couriers = 30,
+  n_shifts   = 8,
+  params     = list(shift_length_hours = 8)
+)
+```
+
+The result has five tables:
+
+```{r}
+str(ops, max.level = 1)
+```
+
+- **`$couriers`** — one row per courier: id, vehicle type, home zone.
+- **`$battery`** — irregular battery readings (sensor pings per courier).
+- **`$gps`** — GPS location pings (from the vehicle tracking system).
+- **`$events`** — delivery completion timestamps.
+- **`$shifts`** — shift-level follow-up windows, with real `POSIXct` timestamps.
+
+Let's look at each:
+
+```{r}
+head(ops$couriers) |> kable()
+```
+
+```{r}
+head(ops$battery) |> kable(digits = 1)
+```
+
+```{r}
+head(ops$gps) |> kable(digits = 2)
+```
+
+```{r}
+head(ops$events) |> kable(digits = 2)
+```
+
+```{r}
+head(ops$shifts) |> kable()
+```
+
+Notice that `battery` and `gps` come from different systems and use different
+column names: battery has `entity_id` and `time`, while GPS has `vehicle_id`
+and `ping_at`. This is typical of real operational data — each source has its
+own schema.
+
+The `shifts` table uses real `POSIXct` timestamps — the kind of data you'd
+get from a fleet management database. The `time_spec` we pass to fluxPrepare
+will convert these to model time (hours from origin) automatically.
+
+## Entity-level splits
+
+The most important rule: **split by entity, not by time**. All shifts belonging
+to one courier go into the same split. This prevents information leakage — a
+model that has seen courier_003's Monday shift should not be evaluated on
+courier_003's Tuesday shift.
+
+```{r}
+splits <- generate_splits(ops$couriers, train_frac = 0.6, test_frac = 0.2,
+                          seed = 123)
+splits |> kable()
+```
+
+If you bring your own split table, `prepare_splits()` validates it (unique
+entities, valid labels, correct columns). Here we use `generate_splits()`, which
+already produces a valid table, so we pass it directly to downstream functions.
+
+```{r}
+splits_prep <- prepare_splits(splits)
+str(splits_prep)
+```
+
+## `prepare_events()` — canonical event format
+
+Raw event tables vary in column naming. `prepare_events()` standardizes them
+into the format downstream tools expect: `entity_id`, `time`, `event_type`.
+
+The `time_spec` tells fluxPrepare how to convert the `POSIXct` timestamps into
+numeric model time. Here, `unit = "hours"` with `origin` set to the fleet's
+first shift start — so model time 0 corresponds to the start of shift 1, and
+the values come out as small, interpretable hours:
+
+```{r}
+fleet_origin <- as.POSIXct("2026-01-05 06:00:00", tz = "UTC")
+ts <- time_spec(unit = "hours", origin = fleet_origin)
+
+events_prep <- prepare_events(
+  events    = ops$events,
+  id_col    = "entity_id",
+  time_col  = "time",
+  type_col  = "event_type",
+  time_spec = ts,
+  sort      = TRUE
+)
+
+head(events_prep) |> kable(digits = 2)
+cat("Total rows:", nrow(events_prep), "\n")
+```
+
+The `time` column is now numeric hours from `origin`. If we had omitted the
+`origin`, fluxPrepare would default to the Unix epoch (`1970-01-01`), and times
+would appear as ~491,000 — correct but unintuitive. Passing a domain-appropriate
+origin keeps the numbers readable and aligned with the model's internal clock.
+
+The `source_table` column is `NA` here because we passed a single data frame.
+If you pass a named list of event tables (e.g., deliveries from one system and
+cancellations from another), each row records which source it came from.
+
+## `prepare_observations()` — canonical observation format
+
+Observations follow the same time conversion, but add a second concept: **specs**.
+Our fleet has two observation sources — battery readings and GPS pings — both
+per-courier, but from different tracking systems with different column names:
+
+| Source | ID column | Time column | Measurement columns |
+|--------|-----------|-------------|---------------------|
+| `battery` | `entity_id` | `time` | `battery_pct` |
+| `gps` | `vehicle_id` | `ping_at` | `lat`, `lon`, `speed_kmh` |
+
+A **spec** is a small list that tells `prepare_observations()` how to map each
+source's columns into the canonical format (`entity_id`, `time`, variables):
+
+```{r}
+battery_spec <- list(
+  id_col   = "entity_id",
+  time_col = "time",
+  vars     = "battery_pct"
+)
+
+gps_spec <- list(
+  id_col   = "vehicle_id",
+  time_col = "ping_at",
+  vars     = c("lat", "lon", "speed_kmh")
+)
+```
+
+Pass both tables and their specs together. `prepare_observations()` renames
+each source's columns to canonical form, converts `POSIXct` → numeric model
+time, and row-binds everything. Variables that don't exist in a given source
+get `NA` (battery rows have no `lat`; GPS rows have no `battery_pct`):
+
+```{r}
+obs_prep <- prepare_observations(
+  tables    = list(battery = ops$battery, gps = ops$gps),
+  specs     = list(battery = battery_spec, gps = gps_spec),
+  time_spec = ts,
+  sort      = TRUE
+)
+
+# One courier's combined timeline: battery + GPS interleaved
+obs_prep[obs_prep$entity_id == "courier_001", ] |> head(10) |> kable(digits = 2)
+cat("Total rows:", nrow(obs_prep), "\n")
+cat("Sources:   ", paste(unique(obs_prep$source_table), collapse = ", "), "\n")
+```
+
+The output is sorted by `entity_id` then `time`, so battery and GPS records for
+the same courier are interleaved chronologically. The `source_table` column
+tracks provenance — you can always filter back to a single source if needed.
+
+## Two kinds of TTV dataset
+
+The preparation pipeline can build two kinds of train/test/validation datasets,
+depending on the modelling question:
+
+| Builder | Question | Anchors from |
+|---------|----------|--------------|
+| `build_ttv_event_process()` | Will a specific event happen within the next H hours? | Follow-up windows + events |
+| `build_ttv_state()` | What will the next observed state look like? | Consecutive observation times |
+
+Both produce interval tables with `t0`, `t1`, `deltat`, and a split label.
+The difference is where the intervals come from and what the outcome column
+represents.
+
+## Event-process TTV
+
+The question for Tutorial 05 (validation) is: **given a courier's
+state at time t₀, what is the probability of a delivery completion within the
+next H hours?**
+
+To answer this, we need anchored intervals: for each courier in the test set,
+define a start time (t₀), a horizon (H), and record whether the event actually
+happened. This is what `build_ttv_event_process()` constructs.
+
+First, define a spec for the event process:
+
+```{r}
+delivery_ep_spec <- spec_event_process(
+  event_types  = "delivery_completed",
+  name         = "delivery_completion",
+  t0_strategy  = "followup_start",
+  fu_start_col = "shift_start",
+  fu_end_col   = "shift_end"
+)
+```
+
+Then build the TTV:
+
+```{r}
+ttv <- build_ttv_event_process(
+  events       = events_prep,
+  observations = obs_prep,
+  splits       = splits_prep,
+  spec         = delivery_ep_spec,
+  followup     = ops$shifts,
+  time_spec    = ts
+)
+
+str(ttv, max.level = 1)
+```
+
+The result is a single data frame with a `split` column indicating which rows
+belong to train, test, or validation.
+
+```{r}
+ttv_train <- ttv[ttv$split == "train", ]
+ttv_test  <- ttv[ttv$split == "test", ]
+ttv_test |> kable(digits = 2)
+```
+
+Each row is one entity × one follow-up interval. Notice how consecutive rows
+for the same courier chain together: the first row's `t1` becomes the next
+row's `t0`. Columns: `entity_id`, `t0` (anchor time), `t1` (first event
+time or censoring), `deltat` (time to event/censoring), `event_occurred`,
+and `censoring_time`.
+
+## Reconstructing state at t₀
+
+To forecast from t₀, the model needs to know the courier's state *at that moment*.
+`reconstruct_state_at()` looks backward through the observation history and
+recovers the most recent measurement of each variable prior to t₀.
+
+```{r}
+state_at_t0 <- reconstruct_state_at(
+  anchors      = ttv_test,
+  observations = obs_prep,
+  vars         = "battery_pct",
+  time_spec    = ts
+)
+
+head(state_at_t0) |> kable(digits = 2)
+```
+
+Each row tells you: "for courier X at anchor time t₀, the last observed
+battery_pct was Y." This is the starting state you feed to the Engine in
+Tutorial 05 when running forecasts from the test set.
+
+## State-transition TTV
+
+Sometimes the question isn't "did an event happen?" but "what does the next
+measurement look like?" — for example, predicting the next battery reading
+from the current one. `build_ttv_state()` builds intervals from consecutive
+observation times in a chosen group, reconstructs predictors at t₀, and
+attaches the outcome values observed at t₁.
+
+```{r}
+ttv_state <- build_ttv_state(
+  observations    = obs_prep,
+  splits          = splits_prep,
+  outcome_group   = "battery",
+  outcome_vars    = "battery_pct",
+  predictor_vars  = "battery_pct",
+  followup        = ops$shifts,
+  fu_start_col    = "shift_start",
+  fu_end_col      = "shift_end",
+  time_spec       = ts
+)
+
+str(ttv_state, max.level = 1)
+```
+
+```{r}
+ttv_state_test <- ttv_state[ttv_state$split == "test", ]
+head(ttv_state_test, 8) |> kable(digits = 2)
+```
+
+Each row is a consecutive battery → battery interval. The `battery_pct` column
+is the predictor (value at t₀); the `outcome_battery_pct` column is the outcome
+(value at t₁). Unlike the event-process TTV, there is no separate
+`reconstruct_state_at()` call — `build_ttv_state()` does reconstruction
+internally.
+
+## Putting it together
+
+The preparation pipeline flow:
+
+```
+Raw ops log
+  ├── prepare_events()        → canonical events
+  ├── prepare_observations()  → canonical obs
+  ├── generate_splits()       → entity-level splits
+  │
+  ├── build_ttv_event_process()  → event intervals + outcomes
+  │     └── reconstruct_state_at() → predictors at each t₀
+  │
+  └── build_ttv_state()          → state-transition intervals
+                                    (predictors reconstructed internally)
+```
+
+Everything downstream — forecasting, validation — consumes these outputs.
+The preparation step is where you catch data quality issues (missing
+observations, impossible values, follow-up gaps) before they corrupt your
+predictions.
+
+## Summary
+
+| Function | Purpose |
+|----------|---------|
+| `generate_delivery_log()` | Synthetic data generator (uses the delivery model) |
+| `generate_splits()` | Entity-level train/test/validation split |
+| `prepare_events()` | Standardize event table columns |
+| `prepare_observations()` | Standardize observation tables with specs |
+| `spec_event_process()` | Define the event process to model |
+| `build_ttv_event_process()` | Event intervals with outcomes, split by TTV |
+| `build_ttv_state()` | State-transition intervals with predictors + outcomes |
+| `reconstruct_state_at()` | Recover predictor state at each anchor time |
+
+**Next:** [05_validation.md](05_validation.md) — forecast from the test-set
+baselines and compare predicted vs observed outcomes using `fluxValidation`.
