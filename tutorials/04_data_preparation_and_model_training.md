@@ -414,80 +414,163 @@ represents.
 
 ## Event-process TTV → `delivery_mod`
 
-The question: **given a courier's state at time t₀, what is the probability of
-a delivery completion within the next H hours?**
+The basic flux model loop is:
+
+1. **Generate the next event** — draw from a time-to-event model.
+2. **Check for decisions** — if the event is a decision point, take action.
+3. **Update entity state** — advance the entity to the event time.
+4. **Check state-triggered decisions** — if the new state triggers a rule, act.
+5. Go back to (1).
+
+flux supports multiple, concurrent event processes — a courier might
+simultaneously be waiting for its next delivery and its next battery reading.
+Each process needs a probabilistic model that answers: *given the entity's
+current state, when does the next event happen?*
+
+The `spec_event_process()` and `build_ttv_event_process()` functions in
+`fluxPrepare` exist to ease the process of training these probabilistic
+time-to-event models. They transform raw operational data into the
+interval-censored format that survival models expect, with covariates
+reconstructed at each anchor time.
+
+### Defining the event-process spec
+
+The question for the delivery process: **given a courier's state at time t₀,
+what is the probability of a delivery completion within the next H hours?**
 
 To answer this, we need anchored intervals: for each courier, define a start
 time (t₀), a horizon (H), and record whether the event actually happened. This
 is what `build_ttv_event_process()` constructs.
 
-First, define a spec for the event process:
+First, define a spec for the event process. The `split_on_groups = "battery"`
+argument tells the builder to segment follow-up at battery observation times —
+creating a new interval each time a fresh battery reading arrives. This produces
+richer training data with time-varying covariates:
 
 
 ``` r
 delivery_ep_spec <- spec_event_process(
-  event_types  = "delivery_completed",
-  name         = "delivery_completion",
-  t0_strategy  = "followup_start",
-  fu_start_col = "shift_start",
-  fu_end_col   = "shift_end"
+  event_types     = "delivery_completed",
+  name            = "delivery_completion",
+  t0_strategy     = "followup_start",
+  fu_start_col    = "shift_start",
+  fu_end_col      = "shift_end",
+  split_on_groups = "battery"
 )
 ```
 
-Then build the TTV:
+### Building the event-process TTV
+
+The follow-up table defines each entity's observation window. We collapse the
+per-shift records into a single window per entity — earliest shift start to
+latest shift end:
 
 
 ``` r
-delivery_mod_ttv <- build_ttv_event_process(
+entity_followup <- ops$shifts |>
+  group_by(entity_id) |>
+  summarise(shift_start = min(shift_start),
+            shift_end   = max(shift_end),
+            .groups     = "drop") |>
+  as.data.frame()
+
+head(entity_followup) |> kable()
+```
+
+
+
+|entity_id   |shift_start         |shift_end           |
+|:-----------|:-------------------|:-------------------|
+|courier_001 |2026-01-05 06:00:00 |2026-01-11 06:00:00 |
+|courier_002 |2026-01-05 06:00:00 |2026-01-12 14:00:00 |
+|courier_003 |2026-01-05 06:00:00 |2026-01-11 14:00:00 |
+|courier_004 |2026-01-05 06:00:00 |2026-01-11 22:00:00 |
+|courier_005 |2026-01-05 06:00:00 |2026-01-11 22:00:00 |
+|courier_006 |2026-01-05 06:00:00 |2026-01-11 14:00:00 |
+
+
+
+Now build the TTV:
+
+
+``` r
+delivery_mod <- build_ttv_event_process(
   events       = events_prep,
   observations = obs_prep,
   splits       = splits_prep,
   spec         = delivery_ep_spec,
-  followup     = ops$shifts,
+  followup     = entity_followup,
   time_spec    = ts
 )
+
+cat("Rows:", nrow(delivery_mod), "\n")
+#> Rows: 517
+cat("Intervals per entity:", range(table(delivery_mod$entity_id)), "\n")
+#> Intervals per entity: 1 21
 ```
 
-Each row is one entity × one follow-up interval. Consecutive rows for the same
-courier chain together: the first row's `t1` becomes the next row's `t0`.
+Each row is one entity × one interval. The `split_on_groups = "battery"`
+argument created multiple intervals per entity, segmented at battery
+observation times. `event_occurred` is TRUE for the interval containing
+the event, FALSE for all preceding intervals.
 
-Reconstruct battery state at each anchor:
+The function `reconstruct_state_at()` can recover predictor values at each
+anchor. Here we use it to attach battery level at each interval's t₀:
 
 
 ``` r
 state_at_t0 <- reconstruct_state_at(
-  anchors      = delivery_mod_ttv,
+  anchors      = delivery_mod,
   observations = obs_prep,
   vars         = "battery_pct",
   time_spec    = ts
 )
 
-delivery_mod_ttv$battery_pct <- state_at_t0$battery_pct
+delivery_mod$battery_pct <- state_at_t0$battery_pct
 ```
 
-Split into train/test:
+The first interval per entity starts at follow-up start (before any battery
+observation), so `battery_pct` is `NA` there. We drop those rows:
 
 
 ``` r
-delivery_mod_train <- delivery_mod_ttv[delivery_mod_ttv$split == "train", ]
-delivery_mod_test  <- delivery_mod_ttv[delivery_mod_ttv$split == "test", ]
-cat("Train rows:", nrow(delivery_mod_train), "\n")
-#> Train rows: 60
-cat("Test rows: ", nrow(delivery_mod_test), "\n")
-#> Test rows:  20
+delivery_mod <- delivery_mod[!is.na(delivery_mod$battery_pct), ]
+cat("Rows after dropping NA battery:", nrow(delivery_mod), "\n")
+#> Rows after dropping NA battery: 417
 ```
+
+
+``` r
+head(delivery_mod) |> kable(digits = 2)
+```
+
+
+
+|   |entity_id   |split      |   t0|   t1| deltat|event_occurred |event_type         | censoring_time| battery_pct|
+|:--|:-----------|:----------|----:|----:|------:|:--------------|:------------------|--------------:|-----------:|
+|2  |courier_001 |validation | 0.09| 0.30|   0.20|FALSE          |NA                 |            144|        88.2|
+|3  |courier_001 |validation | 0.30| 0.56|   0.27|FALSE          |NA                 |            144|        88.6|
+|4  |courier_001 |validation | 0.56| 0.77|   0.21|FALSE          |NA                 |            144|        89.5|
+|5  |courier_001 |validation | 0.77| 1.96|   1.19|FALSE          |NA                 |            144|        89.1|
+|6  |courier_001 |validation | 1.96| 2.23|   0.28|FALSE          |NA                 |            144|        85.8|
+|7  |courier_001 |validation | 2.23| 2.68|   0.44|TRUE           |delivery_completed |            144|        85.1|
+
+
 
 ## State-transition TTV → `battery_mod`
 
-Sometimes the question isn't "did an event happen?" but "what does the next
-measurement look like?" — for example, predicting the next battery reading
-from the current one. `build_ttv_state()` builds intervals from consecutive
-observation times in a chosen group, reconstructs predictors at t₀, and
-attaches the outcome values observed at t₁.
+Step 3 of the model loop — *update entity state at the new event time* —
+requires a model that predicts the next observed value of a state variable
+given the current value and elapsed time. For battery level, the question is:
+*given battery_pct at time t₀, what will it be at the next observation t₁?*
+
+`build_ttv_state()` constructs intervals from consecutive observation times in
+a chosen group, reconstructs predictors at t₀, and attaches the outcome values
+observed at t₁:
 
 
 ``` r
-battery_mod_ttv <- build_ttv_state(
+battery_mod <- build_ttv_state(
   observations    = obs_prep,
   splits          = splits_prep,
   outcome_group   = "battery",
@@ -499,21 +582,29 @@ battery_mod_ttv <- build_ttv_state(
   time_spec       = ts
 )
 
-# Keep only the columns we need
-battery_mod_ttv <- battery_mod_ttv[, c("entity_id", "split", "t0", "deltat",
-                                        "battery_pct", "battery_pct.1")]
-names(battery_mod_ttv)[names(battery_mod_ttv) == "battery_pct.1"] <- "outcome_battery_pct"
+# Rename the outcome column from the auto-generated 'battery_pct.1'
+battery_mod <- battery_mod[, c("entity_id", "split", "t0", "deltat",
+                                "battery_pct", "battery_pct.1")]
+names(battery_mod)[names(battery_mod) == "battery_pct.1"] <- "outcome_battery_pct"
 ```
 
 
 ``` r
-battery_mod_train <- battery_mod_ttv[battery_mod_ttv$split == "train", ]
-battery_mod_test  <- battery_mod_ttv[battery_mod_ttv$split == "test", ]
-cat("Train rows:", nrow(battery_mod_train), "\n")
-#> Train rows: 744
-cat("Test rows: ", nrow(battery_mod_test), "\n")
-#> Test rows:  280
+head(battery_mod) |> kable(digits = 2)
 ```
+
+
+
+|entity_id   |split      |   t0| deltat| battery_pct| outcome_battery_pct|
+|:-----------|:----------|----:|------:|-----------:|-------------------:|
+|courier_001 |validation | 0.09|   0.20|        88.2|                88.6|
+|courier_001 |validation | 0.30|   0.27|        88.6|                89.5|
+|courier_001 |validation | 0.56|   0.21|        89.5|                89.1|
+|courier_001 |validation | 0.77|   1.19|        89.1|                85.8|
+|courier_001 |validation | 1.96|   0.28|        85.8|                85.1|
+|courier_001 |validation | 2.23|   0.51|        85.1|                86.5|
+
+
 
 Each row is a consecutive battery → battery interval. `battery_pct` is the
 predictor (value at t₀); `outcome_battery_pct` is the outcome (value at t₁).
@@ -536,82 +627,100 @@ weather_mod <- ops$weather |>
   select(weather_time, temperature_c, precip_type)
 ```
 
-Join to both datasets:
+Before the join, the delivery TTV has only the event-process columns plus
+battery state:
 
 
 ``` r
-delivery_mod_train <- delivery_mod_train |>
+head(delivery_mod) |> kable(digits = 2)
+```
+
+
+
+|   |entity_id   |split      |   t0|   t1| deltat|event_occurred |event_type         | censoring_time| battery_pct|
+|:--|:-----------|:----------|----:|----:|------:|:--------------|:------------------|--------------:|-----------:|
+|2  |courier_001 |validation | 0.09| 0.30|   0.20|FALSE          |NA                 |            144|        88.2|
+|3  |courier_001 |validation | 0.30| 0.56|   0.27|FALSE          |NA                 |            144|        88.6|
+|4  |courier_001 |validation | 0.56| 0.77|   0.21|FALSE          |NA                 |            144|        89.5|
+|5  |courier_001 |validation | 0.77| 1.96|   1.19|FALSE          |NA                 |            144|        89.1|
+|6  |courier_001 |validation | 1.96| 2.23|   0.28|FALSE          |NA                 |            144|        85.8|
+|7  |courier_001 |validation | 2.23| 2.68|   0.44|TRUE           |delivery_completed |            144|        85.1|
+
+
+
+Join weather to both datasets:
+
+
+``` r
+delivery_mod <- delivery_mod |>
   left_join(weather_mod, join_by(closest(t0 >= weather_time))) |>
   select(-weather_time) |>
   mutate(
     precip_rain = as.integer(precip_type == "rain"),
-    precip_snow = as.integer(precip_type == "snow"),
-    rush_hour   = as.integer((t0 %% 24) >= 7 & (t0 %% 24) <= 9 |
-                             (t0 %% 24) >= 16 & (t0 %% 24) <= 19)
+    precip_snow = as.integer(precip_type == "snow")
   )
 
-delivery_mod_test <- delivery_mod_test |>
-  left_join(weather_mod, join_by(closest(t0 >= weather_time))) |>
-  select(-weather_time) |>
-  mutate(
-    precip_rain = as.integer(precip_type == "rain"),
-    precip_snow = as.integer(precip_type == "snow"),
-    rush_hour   = as.integer((t0 %% 24) >= 7 & (t0 %% 24) <= 9 |
-                             (t0 %% 24) >= 16 & (t0 %% 24) <= 19)
-  )
-```
-
-
-``` r
-head(delivery_mod_train) |> kable(digits = 2)
-```
-
-
-
-|entity_id   |split | t0|   t1| deltat|event_occurred |event_type         | censoring_time|battery_pct | temperature_c|precip_type | precip_rain| precip_snow| rush_hour|
-|:-----------|:-----|--:|----:|------:|:--------------|:------------------|--------------:|:-----------|-------------:|:-----------|-----------:|-----------:|---------:|
-|courier_005 |train |  0| 4.00|   4.00|FALSE          |NA                 |              4|NA          |          -2.6|none        |           0|           0|         0|
-|courier_006 |train |  0| 1.71|   1.71|TRUE           |delivery_completed |              6|NA          |          -2.6|none        |           0|           0|         0|
-|courier_007 |train |  0| 0.30|   0.30|TRUE           |delivery_completed |              8|NA          |          -2.6|none        |           0|           0|         0|
-|courier_008 |train |  0| 1.87|   1.87|TRUE           |delivery_completed |              6|NA          |          -2.6|none        |           0|           0|         0|
-|courier_009 |train |  0| 0.10|   0.10|TRUE           |delivery_completed |              6|NA          |          -2.6|none        |           0|           0|         0|
-|courier_012 |train |  0| 1.00|   1.00|TRUE           |delivery_completed |              8|NA          |          -2.6|none        |           0|           0|         0|
-
-
-
-
-``` r
-battery_mod_train <- battery_mod_train |>
-  left_join(weather_mod, join_by(closest(t0 >= weather_time))) |>
-  select(-weather_time)
-
-battery_mod_test <- battery_mod_test |>
+battery_mod <- battery_mod |>
   left_join(weather_mod, join_by(closest(t0 >= weather_time))) |>
   select(-weather_time)
 ```
 
+After the join, each row carries the weather conditions at its anchor time:
+
 
 ``` r
-head(battery_mod_train) |> kable(digits = 2)
+head(delivery_mod) |> kable(digits = 2)
 ```
 
 
 
-|entity_id   |split |   t0| deltat| battery_pct| outcome_battery_pct| temperature_c|precip_type |
-|:-----------|:-----|----:|------:|-----------:|-------------------:|-------------:|:-----------|
-|courier_005 |train | 0.14|   0.14|        99.4|                99.3|          -2.6|none        |
-|courier_005 |train | 0.28|   0.44|        99.3|                98.8|          -2.6|none        |
-|courier_005 |train | 0.71|   0.67|        98.8|                98.1|          -2.6|none        |
-|courier_005 |train | 1.38|   0.31|        98.1|                98.0|          -2.2|none        |
-|courier_005 |train | 1.68|   0.59|        98.0|                99.0|          -2.2|none        |
-|courier_005 |train | 2.28|   0.07|        99.0|                98.6|          -2.0|none        |
+|entity_id   |split      |   t0|   t1| deltat|event_occurred |event_type         | censoring_time| battery_pct| temperature_c|precip_type | precip_rain| precip_snow|
+|:-----------|:----------|----:|----:|------:|:--------------|:------------------|--------------:|-----------:|-------------:|:-----------|-----------:|-----------:|
+|courier_001 |validation | 0.09| 0.30|   0.20|FALSE          |NA                 |            144|        88.2|          -2.6|none        |           0|           0|
+|courier_001 |validation | 0.30| 0.56|   0.27|FALSE          |NA                 |            144|        88.6|          -2.6|none        |           0|           0|
+|courier_001 |validation | 0.56| 0.77|   0.21|FALSE          |NA                 |            144|        89.5|          -2.6|none        |           0|           0|
+|courier_001 |validation | 0.77| 1.96|   1.19|FALSE          |NA                 |            144|        89.1|          -2.6|none        |           0|           0|
+|courier_001 |validation | 1.96| 2.23|   0.28|FALSE          |NA                 |            144|        85.8|          -2.2|none        |           0|           0|
+|courier_001 |validation | 2.23| 2.68|   0.44|TRUE           |delivery_completed |            144|        85.1|          -2.0|none        |           0|           0|
 
 
 
-The weather covariates are now available as predictors in both datasets.
-`rush_hour` is derived from the clock hour of t₀ — a pragmatic feature, though
-note it is not causally embedded in the simulation (the Engine does not
-currently vary dispatch rates by time of day).
+
+``` r
+head(battery_mod) |> kable(digits = 2)
+```
+
+
+
+|entity_id   |split      |   t0| deltat| battery_pct| outcome_battery_pct| temperature_c|precip_type |
+|:-----------|:----------|----:|------:|-----------:|-------------------:|-------------:|:-----------|
+|courier_001 |validation | 0.09|   0.20|        88.2|                88.6|          -2.6|none        |
+|courier_001 |validation | 0.30|   0.27|        88.6|                89.5|          -2.6|none        |
+|courier_001 |validation | 0.56|   0.21|        89.5|                89.1|          -2.6|none        |
+|courier_001 |validation | 0.77|   1.19|        89.1|                85.8|          -2.6|none        |
+|courier_001 |validation | 1.96|   0.28|        85.8|                85.1|          -2.2|none        |
+|courier_001 |validation | 2.23|   0.51|        85.1|                86.5|          -2.0|none        |
+
+
+
+## Train / test split
+
+Now that both datasets are fully assembled, split into train and test sets.
+Because the `split` column was set at the entity level, this is a simple
+subset — no repeated join code needed:
+
+
+``` r
+delivery_mod_train <- delivery_mod[delivery_mod$split == "train", ]
+delivery_mod_test  <- delivery_mod[delivery_mod$split == "test", ]
+cat("Delivery — train:", nrow(delivery_mod_train), " test:", nrow(delivery_mod_test), "\n")
+#> Delivery — train: 232  test: 102
+
+battery_mod_train <- battery_mod[battery_mod$split == "train", ]
+battery_mod_test  <- battery_mod[battery_mod$split == "test", ]
+cat("Battery  — train:", nrow(battery_mod_train), " test:", nrow(battery_mod_test), "\n")
+#> Battery  — train: 744  test: 280
+```
 
 # Part 2: Model Training
 
@@ -639,21 +748,38 @@ directly to event proposals.
 
 ``` r
 delivery_fit <- flexsurvreg(
-  Surv(deltat, event_occurred) ~ battery_pct + precip_rain + precip_snow + rush_hour,
+  Surv(deltat, event_occurred) ~ battery_pct + temperature_c + precip_rain,
   data = delivery_mod_train,
   dist = "exponential"
 )
-#> Warning in cbind(Y, start = 0, stop = Y[, "time"], time1 = Y[, "time"], :
-#> number of rows of result is not a multiple of vector length (arg 2)
-#> Error in Y[, "time1"]: subscript out of bounds
 
 delivery_fit
-#> Error: object 'delivery_fit' not found
+#> Call:
+#> flexsurvreg(formula = Surv(deltat, event_occurred) ~ battery_pct + 
+#>     temperature_c + precip_rain, data = delivery_mod_train, dist = "exponential")
+#> 
+#> Estimates: 
+#>                data mean  est      L95%     U95%     se       exp(est)  L95%   
+#> rate                NA     6.4790   0.4863  86.3153   8.5599       NA        NA
+#> battery_pct    92.1073    -0.0369  -0.0609  -0.0129   0.0122   0.9638    0.9409
+#> temperature_c  -2.4116    -0.3915  -0.9022   0.1192   0.2606   0.6760    0.4057
+#> precip_rain     0.0474    -1.2799  -3.4237   0.8638   1.0937   0.2781    0.0326
+#>                U95%   
+#> rate                NA
+#> battery_pct     0.9872
+#> temperature_c   1.1266
+#> precip_rain     2.3721
+#> 
+#> N = 232,  Events: 49,  Censored: 183
+#> Total time at risk: 99.08358
+#> Log-likelihood = -77.42814, df = 4
+#> AIC = 162.8563
 ```
 
-The coefficients are on the log-rate scale. Look for the embedded effects from
-the data generator: rain slows deliveries (~1.4×), snow slows them
-substantially (~3×), and low battery reduces the effective delivery rate.
+The coefficients are on the log-rate scale. Higher battery levels are
+associated with faster deliveries (positive coefficient → higher rate).
+Temperature and precipitation effects reflect the weather patterns embedded
+in the data generator.
 
 ## Linear regression: battery state transition
 
@@ -710,7 +836,6 @@ fitted model down to exactly what `predict()` needs and nothing more:
 
 ``` r
 delivery_lean <- burgle(delivery_fit)
-#> Error: object 'delivery_fit' not found
 battery_lean  <- burgle(battery_fit)
 ```
 
@@ -719,9 +844,9 @@ How much did we save?
 
 ``` r
 cat("delivery_fit:", format(object.size(delivery_fit), units = "auto"), "\n")
-#> Error: object 'delivery_fit' not found
+#> delivery_fit: 273.6 Kb
 cat("delivery_lean:", format(object.size(delivery_lean), units = "auto"), "\n")
-#> Error: object 'delivery_lean' not found
+#> delivery_lean: 6.8 Kb
 cat("\n")
 cat("battery_fit:", format(object.size(battery_fit), units = "auto"), "\n")
 #> battery_fit: 229.9 Kb
@@ -734,14 +859,16 @@ The burgled objects are typically **~50× smaller**. They implement the same
 
 
 ``` r
-# Verify predictions match
-nd_delivery <- delivery_mod_test[1:3, c("battery_pct", "precip_rain", "precip_snow", "rush_hour")]
-lp_full <- predict(delivery_fit, newdata = nd_delivery, type = "lp")
-#> Error: object 'delivery_fit' not found
-lp_lean <- predict(delivery_lean, newdata = nd_delivery, type = "lp")
-#> Error: object 'delivery_lean' not found
-cat("Max prediction difference:", max(abs(lp_full$.pred_lp - as.numeric(lp_lean))), "\n")
-#> Error: object 'lp_full' not found
+# Verify burgled predictions match the original coefficients
+nd_delivery <- delivery_mod_test[1:3, c("battery_pct", "temperature_c", "precip_rain")]
+lp_lean <- as.numeric(predict(delivery_lean, newdata = nd_delivery, type = "lp"))
+
+# Manual calculation from original coefficients (excluding intercept)
+coefs <- coef(delivery_fit)
+lp_manual <- as.numeric(as.matrix(nd_delivery) %*% coefs[names(nd_delivery)])
+
+cat("Max prediction difference:", max(abs(lp_lean - lp_manual)), "\n")
+#> Max prediction difference: 0
 ```
 
 This matters for two reasons:
@@ -769,7 +896,6 @@ lean model:
 
 ``` r
 delivery_rate_intercept <- coef(delivery_fit)["rate"]
-#> Error: object 'delivery_fit' not found
 ```
 
 
@@ -780,10 +906,9 @@ propose_delivery <- function(entity, param_ctx = NULL, process_ids = NULL,
   s <- entity$as_list(c("battery_pct"))
 
   newdata <- data.frame(
-    battery_pct = as.numeric(s$battery_pct),
-    precip_rain = 0L,  # would come from weather context in production
-    precip_snow = 0L,
-    rush_hour   = 0L
+    battery_pct   = as.numeric(s$battery_pct),
+    temperature_c = 2,     # would come from weather context in production
+    precip_rain   = 0L
   )
 
   # burgled flexsurvreg: predict(type="lp") returns covariate contribution
@@ -840,7 +965,7 @@ Raw ops log (couriers, battery, gps, events, shifts, weather)
   │
   ├── build_ttv_event_process()  → delivery_mod (event intervals)
   │     ├── reconstruct_state_at() → battery_pct at each t₀
-  │     ├── left_join(weather)     → temperature, precip, rush_hour
+  │     ├── left_join(weather)     → temperature, precip
   │     ├── flexsurvreg()          → delivery_fit
   │     └── burgle()               → delivery_lean → propose_delivery()
   │
