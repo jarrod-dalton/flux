@@ -571,11 +571,6 @@ battery_mod <- build_ttv_state(
   fu_end_col      = "shift_end",
   time_spec       = ts
 )
-
-# Rename the outcome column from the auto-generated 'battery_pct.1'
-battery_mod <- battery_mod[, c("entity_id", "split", "t0", "deltat",
-                                "battery_pct", "battery_pct.1")]
-names(battery_mod)[names(battery_mod) == "battery_pct.1"] <- "outcome_battery_pct"
 ```
 
 
@@ -585,14 +580,14 @@ head(battery_mod) |> kable(digits = 2)
 
 
 
-|entity_id   |split      |   t0| deltat| battery_pct| outcome_battery_pct|
-|:-----------|:----------|----:|------:|-----------:|-------------------:|
-|courier_001 |validation | 0.09|   0.20|        88.2|                88.6|
-|courier_001 |validation | 0.30|   0.27|        88.6|                89.5|
-|courier_001 |validation | 0.56|   0.21|        89.5|                89.1|
-|courier_001 |validation | 0.77|   1.19|        89.1|                85.8|
-|courier_001 |validation | 1.96|   0.28|        85.8|                85.1|
-|courier_001 |validation | 2.23|   0.51|        85.1|                86.5|
+|entity_id   |split      |   t0|   t1| deltat|censored |end_type | battery_pct| outcome_battery_pct|
+|:-----------|:----------|----:|----:|------:|:--------|:--------|-----------:|-------------------:|
+|courier_001 |validation | 0.09| 0.30|   0.20|FALSE    |observed |        88.2|                88.6|
+|courier_001 |validation | 0.30| 0.56|   0.27|FALSE    |observed |        88.6|                89.5|
+|courier_001 |validation | 0.56| 0.77|   0.21|FALSE    |observed |        89.5|                89.1|
+|courier_001 |validation | 0.77| 1.96|   1.19|FALSE    |observed |        89.1|                85.8|
+|courier_001 |validation | 1.96| 2.23|   0.28|FALSE    |observed |        85.8|                85.1|
+|courier_001 |validation | 2.23| 2.75|   0.51|FALSE    |observed |        85.1|                86.5|
 
 
 
@@ -682,14 +677,14 @@ head(battery_mod) |> kable(digits = 2)
 
 
 
-|entity_id   |split      |   t0| deltat| battery_pct| outcome_battery_pct| temperature_c|precip_type |
-|:-----------|:----------|----:|------:|-----------:|-------------------:|-------------:|:-----------|
-|courier_001 |validation | 0.09|   0.20|        88.2|                88.6|          -2.6|none        |
-|courier_001 |validation | 0.30|   0.27|        88.6|                89.5|          -2.6|none        |
-|courier_001 |validation | 0.56|   0.21|        89.5|                89.1|          -2.6|none        |
-|courier_001 |validation | 0.77|   1.19|        89.1|                85.8|          -2.6|none        |
-|courier_001 |validation | 1.96|   0.28|        85.8|                85.1|          -2.2|none        |
-|courier_001 |validation | 2.23|   0.51|        85.1|                86.5|          -2.0|none        |
+|entity_id   |split      |   t0|   t1| deltat|censored |end_type | battery_pct| outcome_battery_pct| temperature_c|precip_type |
+|:-----------|:----------|----:|----:|------:|:--------|:--------|-----------:|-------------------:|-------------:|:-----------|
+|courier_001 |validation | 0.09| 0.30|   0.20|FALSE    |observed |        88.2|                88.6|          -2.6|none        |
+|courier_001 |validation | 0.30| 0.56|   0.27|FALSE    |observed |        88.6|                89.5|          -2.6|none        |
+|courier_001 |validation | 0.56| 0.77|   0.21|FALSE    |observed |        89.5|                89.1|          -2.6|none        |
+|courier_001 |validation | 0.77| 1.96|   1.19|FALSE    |observed |        89.1|                85.8|          -2.6|none        |
+|courier_001 |validation | 1.96| 2.23|   0.28|FALSE    |observed |        85.8|                85.1|          -2.2|none        |
+|courier_001 |validation | 2.23| 2.75|   0.51|FALSE    |observed |        85.1|                86.5|          -2.0|none        |
 
 
 

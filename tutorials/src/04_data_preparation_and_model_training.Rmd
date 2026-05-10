@@ -414,11 +414,6 @@ battery_mod <- build_ttv_state(
   fu_end_col      = "shift_end",
   time_spec       = ts
 )
-
-# Rename the outcome column from the auto-generated 'battery_pct.1'
-battery_mod <- battery_mod[, c("entity_id", "split", "t0", "deltat",
-                                "battery_pct", "battery_pct.1")]
-names(battery_mod)[names(battery_mod) == "battery_pct.1"] <- "outcome_battery_pct"
 ```
 
 ```{r}
