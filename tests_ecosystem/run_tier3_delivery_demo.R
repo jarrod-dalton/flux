@@ -39,12 +39,12 @@ source(file.path(test_root, "tutorials", "model", "urban_delivery_data.R"))
 # -- 1. Generate synthetic operational log (deterministic) ---------------------
 cat("[Tier 3] Generating synthetic fleet data (20 agents, 5 shifts)...\n")
 set.seed(42)
-ops <- generate_delivery_log(n_agents = 20, n_shifts = 5)
+ops <- generate_delivery_log(n_couriers = 20, n_shifts = 5)
 
-stopifnot(nrow(ops$entities) == 20)
+stopifnot(nrow(ops$couriers) == 20)
 stopifnot(nrow(ops$events) > 0)
-stopifnot(nrow(ops$observations) > 0)
-stopifnot(nrow(ops$followup) == 100)  # 20 agents × 5 shifts
+stopifnot(nrow(ops$battery) > 0)
+stopifnot(nrow(ops$shifts) == 100)  # 20 agents × 5 shifts
 
 # -- 2. Prepare TTV -----------------------------------------------------------
 cat("[Tier 3] Preparing events, observations, splits, and TTV...\n")
@@ -64,19 +64,21 @@ battery_spec <- list(
 )
 
 obs_prep <- prepare_observations(
-  tables    = list(battery = ops$observations),
+  tables    = list(battery = ops$battery),
   specs     = list(battery = battery_spec),
   time_spec = time_spec(unit = "hours")
 )
 
-splits <- generate_splits(ops$entities, train_frac = 0.6, test_frac = 0.2,
+splits <- generate_splits(ops$couriers, train_frac = 0.6, test_frac = 0.2,
                           seed = 123)
 splits_prep <- prepare_splits(splits, id_col = "entity_id", split_col = "split")
 
 delivery_ep_spec <- spec_event_process(
-  event_types = "delivery_completed",
-  name        = "delivery_completion",
-  t0_strategy = "followup_start"
+  event_types  = "delivery_completed",
+  name         = "delivery_completion",
+  t0_strategy  = "followup_start",
+  fu_start_col = "shift_start",
+  fu_end_col   = "shift_end"
 )
 
 ttv <- build_ttv_event_process(
@@ -84,7 +86,7 @@ ttv <- build_ttv_event_process(
   observations = obs_prep,
   splits       = splits_prep,
   spec         = delivery_ep_spec,
-  followup     = ops$followup,
+  followup     = ops$shifts,
   time_spec    = time_spec(unit = "hours")
 )
 
@@ -126,7 +128,7 @@ test_entities <- lapply(seq_len(nrow(state_at_t0)), function(i) {
     ),
     schema      = shared_schema,
     entity_type = "delivery_agent",
-    time0       = row$t0
+    time0       = 0  # reset clock to 0 for forecast (times are relative hours)
   )
 })
 names(test_entities) <- state_at_t0$entity_id
