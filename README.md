@@ -9,6 +9,20 @@
 
 This super-repo coordinates the package stack, ecosystem-level testing, and cross-repo releases.
 
+---
+
+### What's new in v2.0.0
+
+flux v2.0.0 makes decisions a formal part of how models are written. You declare a **decision point** on your schema — a checkpoint where the engine pauses, asks a policy function what to do, and logs the full record of what was observed, proposed, and realized. That log is your decision audit trail. You can pull it out as a data frame at the end of any run.
+
+Parameter uncertainty is cleaner too. Your bundle declares a single function that draws `n` parameter sets, and the engine handles the crossing — every entity runs under every draw, fully tracked. No bespoke scaffolding.
+
+The old freeform `ctx` argument is gone, replaced by typed objects (`ParamContext`, `SimContext`, `RuntimeContext`) that make callback contracts explicit. And `load_model()` provides a validated assembly step for wiring schema, bundle, policy, and runtime config together safely.
+
+For full details, see the [v2.0.0 release announcement](./docs/release_announcements/v2.0.0.md) — or jump straight into [Tutorial 01](./tutorials/01_core_engine_scaffold.md) (which covers the engine, parameter draws, and refresh rules) and [Tutorial 03](./tutorials/03_decisions_policy.md) (decisions and policy).
+
+---
+
 ## One-Line Install (Core Stack)
 
 Install the core flux ecosystem packages in one step:
@@ -44,7 +58,7 @@ Reference/demo packages remain separate:
 
 ## What lives here
 
-- Release orchestration script: `resources/scripts/release/release_ecosystem.sh`
+- Release orchestration script: `scripts/release/release_ecosystem.sh`
 - Cross-package integration test harness: `tests_ecosystem/`
 - Shared docs/notes for the ecosystem: `docs/`
 - Git submodules for package repos (under `subrepos/`):
@@ -90,7 +104,7 @@ make release-dry
 
 ## Release line
 
-- Current ecosystem release: `v1.10.1`
+- Release line: `v2.0.0`
 - See the [GitHub releases page](https://github.com/jarrod-dalton/flux/releases) for full history.
 
 ## Book scaffold
