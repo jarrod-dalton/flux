@@ -1,7 +1,7 @@
 ![flux Ecosystem](./resources/images/header_logo.png)
 
 [![Release](https://img.shields.io/github/v/release/jarrod-dalton/flux?display_name=tag)](https://github.com/jarrod-dalton/flux/releases)
-[![r-universe](https://jarrod-dalton.r-universe.dev/badges/flux)](https://jarrod-dalton.r-universe.dev/flux)
+[![fluxCore CRAN downloads](https://cranlogs.r-pkg.org/badges/grand-total/fluxCore)](https://CRAN.R-project.org/package=fluxCore)
 [![Ecosystem Tests](https://img.shields.io/badge/tests-3_tiers-brightgreen)](./tests_ecosystem/README.md)
 [![Language: R](https://img.shields.io/badge/language-R-276DC3?logo=r&logoColor=white)](https://www.r-project.org/)
 
@@ -23,16 +23,21 @@ For full details, see the [v2.0.0 release announcement](./docs/release_announcem
 
 ---
 
-## One-Line Install (Core Stack)
+## Installation
 
-Install the core flux ecosystem packages in one step:
+The `flux` meta-package currently installs the latest source versions of the
+core ecosystem packages from GitHub:
 
 ```r
-# Latest stable release (recommended):
-install.packages("flux", repos = "https://jarrod-dalton.r-universe.dev")
-
-# Pre-release install from source code:
+install.packages("remotes")
 remotes::install_github("jarrod-dalton/flux")
+```
+
+`fluxCore` is also available independently as a stable release from
+[CRAN](https://CRAN.R-project.org/package=fluxCore):
+
+```r
+install.packages("fluxCore")
 ```
 
 This meta-package installs:
