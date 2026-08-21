@@ -471,6 +471,10 @@ Two principles apply when writing refresh rules:
 1. **The winning process must always be refreshed.** Its proposal was just consumed; if it is not re-asked it will hold a stale `time_next` that has already passed and will keep winning indefinitely.
 2. **Only refresh processes whose next-event timing depends on what just changed.** If a process's clock is truly independent of the current state change, its existing proposal is still valid.
 
+Both principles govern **your** processes only. If you also declare decision points and attach a policy (see tutorial 03), the actions that policy schedules are held separately and managed by the engine. Whatever `refresh_rules` returns, a pending action is never disturbed and a realized one is retired for you — so you never name an action in a refresh rule, and there is no equivalent of principle 1 for them.
+
+`refresh_rules` also receives `last_event`, and so does `propose_events` if you declare that argument. On the very first call there is no previous event and `last_event` is `NULL`, which is a convenient way to tell initial setup apart from a mid-run refresh.
+
 For the courier model, the reasoning is straightforward:
 
 - After `dispatch` fires: battery and payload changed, so `dispatch` needs a fresh proposal. Weather timing is determined by atmospheric dynamics independent of any individual courier — the weather proposal can stand.
@@ -862,10 +866,12 @@ batch <- run_cohort(
   backend = "none",
   seed = 123
 )
-#> Error: Value for 'payload_kg' must be <= 20.
+#> Error:
+#> ! Value for 'payload_kg' must be <= 20.
 
 head(batch$index)
-#> Error: object 'batch' not found
+#> Error:
+#> ! object 'batch' not found
 ```
 
 `n_sims = 2` runs each entity twice with different random seeds, giving two stochastic replicates per courier. The `$index` records the entity id, sim id, and any summary statistics your `observe()` hook accumulated.
@@ -958,10 +964,12 @@ batch_pd <- run_cohort(
   backend = "none",
   seed = 123
 )
-#> Error in stats::rlnorm(1, meanlog = meanlog, sdlog = 0.4): invalid arguments
+#> Error in `stats::rlnorm()`:
+#> ! invalid arguments
 
 head(batch_pd$index, 12)
-#> Error: object 'batch_pd' not found
+#> Error:
+#> ! object 'batch_pd' not found
 ```
 
 Each of the 4 couriers now produces 6 rows (3 draws × 2 sims). Rows sharing the same `param_draw_id` were simulated under identical drawn parameters — the only variance within a draw is the stochastic replicate seed. Rows with different `param_draw_id` also differ in `interval_meanlog` and `drain_meanlog`, so systematic differences in event counts or stopping time across draws reflect genuine model-parameter uncertainty rather than random noise.
@@ -971,5 +979,6 @@ The drawn `ParamContext` objects are also returned in `batch_pd$param_draws` for
 
 ``` r
 batch_pd$param_draws[[1]]
-#> Error: object 'batch_pd' not found
+#> Error:
+#> ! object 'batch_pd' not found
 ```

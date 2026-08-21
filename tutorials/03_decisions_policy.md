@@ -58,7 +58,60 @@ were not there.
 Decision points are declared on the schema, not buried in transition logic.
 This keeps the interface explicit and auditable.
 
-![Engine loop with decision points](figure/engine-loop-decision-point.png)
+Here is the full event cycle. The top band is everything the engine does
+*before* the state changes, the middle band everything it does *after* — a
+distinction that matters, because a decision point's `trigger` is checked on
+the raw event before the transition, while its `condition` is checked on the
+updated entity afterwards:
+
+```mermaid
+flowchart TB
+    START(["propose_events()<br/><i>last_event = NULL</i>"])
+
+    subgraph P1["1 - realize the event, before state changes"]
+        direction LR
+        PICK["<b>pick soonest event</b><br/>proposals + action_proposals"]
+        TRIG["which decision points<br/>does this event trigger?"]
+        KIND{"policy action with<br/>a handler?"}
+        AH["action_handler()"]
+        TR["transition()"]
+        UPD["<b>entity updated</b>"]
+        PICK --> TRIG --> KIND
+        KIND -- yes --> AH --> UPD
+        KIND -- no --> TR --> UPD
+    end
+
+    subgraph P2["2 - consult the policy, after state changes"]
+        direction LR
+        COND{"condition<br/>met?"}
+        POL["policy() to ActionEvent<br/><i>joins action_proposals</i>"]
+        AUD["audit record<br/><i>if audit = TRUE</i>"]
+        OBS["trajectory records<br/>observe()"]
+        COND -- yes --> POL --> OBS
+        COND -- no --> AUD --> OBS
+    end
+
+    subgraph P3["3 - close the cycle"]
+        direction LR
+        FIN{"stop, max_time<br/>or max_events?"}
+        RET["engine retires the<br/>realized action"]
+        RFR["refresh_rules() then<br/>propose_events(last_event)<br/><i>rewrites proposals only</i>"]
+        FIN -- no --> RET --> RFR
+    end
+
+    START --> PICK
+    UPD --> COND
+    OBS --> FIN
+    FIN -- yes --> DONE(["<b>run ends</b> - stopped_by"])
+    RFR --> PICK
+```
+
+Two details in that diagram are worth holding onto. The engine keeps model
+proposals and policy actions in **separate stores**: `refresh_rules()` and
+`propose_events()` only ever rewrite your processes, so an action you scheduled
+for the future is never disturbed by a refresh. And the engine **retires a
+realized action itself** — that is not your job, and there is no name you could
+use to do it.
 
 Here is how we declare the dispatch decision point. Because we want the
 engine to handle `accept` and `decline` events directly — without writing a
@@ -72,6 +125,7 @@ dp_dispatch <- DecisionPoint(
   id              = "dispatch_decision",
   trigger         = "dispatch_check",
   allowed_actions = c("accept", "decline"),
+  on_pending_action = "replace", # A newer dispatch supersedes an unhandled one.
   action_handlers = list(
     accept = function(entity, event) {
       # Courier commits to the delivery: pay the battery cost now.
@@ -506,20 +560,24 @@ audit trail to capture every checkpoint visit.
 A schema can carry more than one decision point attached to the same trigger.
 Each fires **independently**: the engine checks the condition (if any) and
 calls the policy separately for each active checkpoint in the same event step.
-When both propose actions, both `ActionEvent`s enter a queue and
-**arbitration** picks the one with the earliest `time_next`.
+
+Each decision point holds **at most one pending action** at a time, in its own
+slot. So when two checkpoints both propose, you get two pending actions, not a
+queue belonging to one of them. Both are then arbitrated against every other
+proposal on the timeline, and both eventually happen — the earlier `time_next`
+simply happens first. Neither is discarded.
 
 A common pattern is a tiered response: one checkpoint handles the routine
 accept/decline decision, and a second handles an emergency override when the
-battery reaches a critical threshold. Because the critical override should
-always win, it is given a slightly smaller `time_next` offset so it is
-scheduled ahead of the routine action:
+battery reaches a critical threshold. Giving the override a slightly smaller
+`time_next` offset schedules it ahead of the routine action:
 
 
 ``` r
 dp_standard <- DecisionPoint(
   id              = "dispatch_accept",
   trigger         = "dispatch_check",
+  condition       = function(entity) entity$current$battery_pct >= 10,
   allowed_actions = c("accept", "decline"),
   action_handlers = list(
     accept = function(entity, event) {
@@ -551,12 +609,19 @@ schema_two_dps <- set_schema(
 )
 ```
 
-When battery is above 10%, only `dp_standard` is active and the routine
-policy runs. When battery drops below 10%, **both** checkpoints fire:
-`dp_standard` proposes its action and `dp_critical` also proposes "decline".
-Arbitration picks whichever has the smaller `time_next`. By giving the
-critical override a smaller offset (`+ 0.001` vs. `+ 0.01`), it always wins
-when both are active:
+Notice the `condition` on each checkpoint. They are deliberately complementary:
+`dp_standard` stands down below 10% battery, exactly where `dp_critical` takes
+over. This matters more than it might appear.
+
+If both checkpoints were active at once, **both** would propose, and both
+actions would be realized — the emergency `decline` at `+ 0.001`, then the
+routine `accept` at `+ 0.01`, which would quietly undo the override a fraction
+of an hour later. Scheduling one action earlier than another does not cancel
+the later one. It only orders them.
+
+So when two checkpoints represent genuinely alternative responses, make them
+mutually exclusive with `condition`. Reach for distinct `time_next` offsets
+only when you want actions to *sequence*, not when you want one to *win*.
 
 
 ``` r
@@ -564,7 +629,6 @@ policy_two_dps <- function(decision_point, entity) {
   battery <- as.numeric(entity$current$battery_pct)
 
   if (decision_point$id == "battery_critical") {
-    # Emergency override fires first (time_next offset smaller).
     return(ActionEvent(
       action_type = "decline",
       time_next   = entity$last_time + 0.001,
@@ -581,15 +645,12 @@ policy_two_dps <- function(decision_point, entity) {
 }
 ```
 
-With two checkpoints both proposing actions in the same event step, the one
-with `time_next = last_time + 0.001` is scheduled first. The action handler
-processes "decline" and the run continues; the second proposal from the routine
-checkpoint has no further effect.
-
-> **Arbitration rule:** When multiple proposed actions are waiting, the engine
-> picks the one scheduled earliest (smallest `time_next`). If two proposals
-> share the same time, the ordering is not defined — encode priority by
-> choosing distinct offsets.
+> **Arbitration rule:** every pending action competes with every model proposal
+> on one timeline, and the earliest `time_next` is realized next. Pending
+> actions are not discarded when they lose — they wait their turn. Ties break
+> deterministically, but encode priority with distinct offsets rather than
+> relying on that, and use `condition` when you want one response *instead of*
+> another.
 
 ## Distribution of outcomes across many runs
 
@@ -673,10 +734,10 @@ kable(summary_tbl)
 |Deliveries (accept): median        |  5.00|
 |Deliveries (threshold): mean       |  4.50|
 |Deliveries (threshold): median     |  4.00|
-|Delta deliveries: mean             | -0.73|
+|Delta deliveries: mean             | -0.74|
 |P(threshold > accept) — deliveries |  0.03|
-|Delta battery: mean                |  6.40|
-|P(threshold > accept) — battery    |  0.59|
+|Delta battery: mean                |  6.60|
+|P(threshold > accept) — battery    |  0.60|
 
 
 
@@ -743,7 +804,7 @@ the rest of the flux ecosystem builds on:
 | `load_model()` | Validates schema + bundle + policy + trajectory config together |
 | Trajectory records | Per-decision audit trail: `observation`, `action`, `state_before/after`, `condition_met` |
 | Same seed, different policy | Isolates the causal effect of the policy on outcomes |
-| Multiple DPs + arbitration | Multiple DPs can fire in one event cycle; earliest `time_next` wins |
+| Multiple DPs + arbitration | Multiple DPs can fire in one event cycle; the earliest happens next while later actions remain pending |
 
 **Next:** [04_data_preparation_and_model_training.md](04_data_preparation_and_model_training.md) —
 generate synthetic operational logs and prepare them into train/test/validation

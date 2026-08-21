@@ -420,6 +420,10 @@ Two principles apply when writing refresh rules:
 1. **The winning process must always be refreshed.** Its proposal was just consumed; if it is not re-asked it will hold a stale `time_next` that has already passed and will keep winning indefinitely.
 2. **Only refresh processes whose next-event timing depends on what just changed.** If a process's clock is truly independent of the current state change, its existing proposal is still valid.
 
+Both principles govern **your** processes only. If you also declare decision points and attach a policy (see tutorial 03), the actions that policy schedules are held separately and managed by the engine. Whatever `refresh_rules` returns, a pending action is never disturbed and a realized one is retired for you — so you never name an action in a refresh rule, and there is no equivalent of principle 1 for them.
+
+`refresh_rules` also receives `last_event`, and so does `propose_events` if you declare that argument. On the very first call there is no previous event and `last_event` is `NULL`, which is a convenient way to tell initial setup apart from a mid-run refresh.
+
 For the courier model, the reasoning is straightforward:
 
 - After `dispatch` fires: battery and payload changed, so `dispatch` needs a fresh proposal. Weather timing is determined by atmospheric dynamics independent of any individual courier — the weather proposal can stand.

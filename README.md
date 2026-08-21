@@ -17,7 +17,7 @@ flux v2.0.0 makes decisions a formal part of how models are written. You declare
 
 Parameter uncertainty is cleaner too. Your bundle declares a single function that draws `n` parameter sets, and the engine handles the crossing — every entity runs under every draw, fully tracked. No bespoke scaffolding.
 
-The old freeform `ctx` argument is gone, replaced by typed objects (`ParamContext`, `SimContext`, `RuntimeContext`) that make callback contracts explicit. And `load_model()` provides a validated assembly step for wiring schema, bundle, policy, and runtime config together safely.
+Bundle callbacks can opt into typed objects (`ParamContext`, `SimContext`, `RuntimeContext`) that make their contracts explicit. And `load_model()` provides a validated assembly step for wiring schema, bundle, policy, and runtime config together safely.
 
 For full details, see the [v2.0.0 release announcement](./docs/release_announcements/v2.0.0.md) — or jump straight into [Tutorial 01](./tutorials/01_core_engine_scaffold.md) (which covers the engine, parameter draws, and refresh rules) and [Tutorial 03](./tutorials/03_decisions_policy.md) (decisions and policy).
 
