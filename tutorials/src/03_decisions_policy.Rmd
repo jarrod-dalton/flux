@@ -497,7 +497,7 @@ variables you care about:
 ```{r}
 tr_cond_df <- trajectory_table(out_cond$trajectory_records,
                                vars = c("battery_pct", "dispatch_mode"))
-head(tr_cond_df[, c("t", "condition_met", "action_taken",
+head(tr_cond_df[, c("t", "condition_met", "selected_action",
                     "battery_pct_before", "dispatch_mode_before")], 8) |>
   kable(digits = 2)
 ```

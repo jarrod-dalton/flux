@@ -902,8 +902,8 @@ pc <- ParamContext(
 )
 print(pc)
 #> <ParamContext>
-#>   draw_id   : 1 
-#>   provenance: (none) 
+#>   draw_id   : 1
+#>   provenance: (none)
 #>   params    : 2 field(s)
 pc$params$interval_meanlog
 #> [1] 0.2

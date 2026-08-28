@@ -570,8 +570,9 @@ cat("battery_fit:", format(object.size(battery_fit), units = "auto"), "\n")
 cat("battery_lean:", format(object.size(battery_lean), units = "auto"), "\n")
 ```
 
-The burgled objects are typically **~50× smaller**. They implement the same
-`predict()` interface, so downstream code doesn't change:
+The burgled objects are substantially smaller; the exact reduction depends on
+the fitted model and package versions. They implement the same `predict()`
+interface, so downstream code doesn't change:
 
 ```{r}
 # Verify burgled predictions match the original coefficients

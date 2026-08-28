@@ -831,16 +831,17 @@ How much did we save?
 cat("delivery_fit:", format(object.size(delivery_fit), units = "auto"), "\n")
 #> delivery_fit: 273.6 Kb
 cat("delivery_lean:", format(object.size(delivery_lean), units = "auto"), "\n")
-#> delivery_lean: 6.8 Kb
+#> delivery_lean: 46.7 Kb
 cat("\n")
 cat("battery_fit:", format(object.size(battery_fit), units = "auto"), "\n")
 #> battery_fit: 229.9 Kb
 cat("battery_lean:", format(object.size(battery_lean), units = "auto"), "\n")
-#> battery_lean: 3.4 Kb
+#> battery_lean: 9 Kb
 ```
 
-The burgled objects are typically **~50× smaller**. They implement the same
-`predict()` interface, so downstream code doesn't change:
+The burgled objects are substantially smaller; the exact reduction depends on
+the fitted model and package versions. They implement the same `predict()`
+interface, so downstream code doesn't change:
 
 
 ``` r

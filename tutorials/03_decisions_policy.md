@@ -408,17 +408,17 @@ head(tr_df, 10) |> kable(digits = 2)
 
 
 
-|    t|decision_point_id |trigger_event  |action_taken |condition_met | battery_pct_before| battery_pct_after|dispatch_mode_before |dispatch_mode_after |
-|----:|:-----------------|:--------------|:------------|:-------------|------------------:|-----------------:|:--------------------|:-------------------|
-| 0.36|dispatch_decision |dispatch_check |accept       |NA            |              80.00|             80.00|idle                 |assigned            |
-| 1.70|dispatch_decision |dispatch_check |accept       |NA            |              63.33|             63.33|in_transit           |assigned            |
-| 2.95|dispatch_decision |dispatch_check |decline      |NA            |              47.98|             47.98|in_transit           |assigned            |
-| 4.71|dispatch_decision |dispatch_check |decline      |NA            |              47.98|             47.98|idle                 |assigned            |
-| 5.53|dispatch_decision |dispatch_check |decline      |NA            |              47.98|             47.98|idle                 |assigned            |
-| 5.90|dispatch_decision |dispatch_check |decline      |NA            |              47.98|             47.98|idle                 |assigned            |
-| 6.29|dispatch_decision |dispatch_check |decline      |NA            |              47.98|             47.98|idle                 |assigned            |
-| 6.49|dispatch_decision |dispatch_check |decline      |NA            |              47.98|             47.98|idle                 |assigned            |
-| 6.79|dispatch_decision |dispatch_check |decline      |NA            |              47.98|             47.98|idle                 |assigned            |
+|run_id |entity_id |    t|decision_point_id |trigger_event  |selected_action |condition_met | battery_pct_before| battery_pct_after|dispatch_mode_before |dispatch_mode_after |
+|:------|:---------|----:|:-----------------|:--------------|:---------------|:-------------|------------------:|-----------------:|:--------------------|:-------------------|
+|run_1  |courier_A | 0.36|dispatch_decision |dispatch_check |accept          |NA            |              80.00|             80.00|idle                 |assigned            |
+|run_1  |courier_A | 1.70|dispatch_decision |dispatch_check |accept          |NA            |              63.33|             63.33|in_transit           |assigned            |
+|run_1  |courier_A | 2.95|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|in_transit           |assigned            |
+|run_1  |courier_A | 4.71|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|idle                 |assigned            |
+|run_1  |courier_A | 5.53|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|idle                 |assigned            |
+|run_1  |courier_A | 5.90|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|idle                 |assigned            |
+|run_1  |courier_A | 6.29|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|idle                 |assigned            |
+|run_1  |courier_A | 6.49|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|idle                 |assigned            |
+|run_1  |courier_A | 6.79|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|idle                 |assigned            |
 
 
 
@@ -531,18 +531,18 @@ variables you care about:
 ``` r
 tr_cond_df <- trajectory_table(out_cond$trajectory_records,
                                vars = c("battery_pct", "dispatch_mode"))
-head(tr_cond_df[, c("t", "condition_met", "action_taken",
+head(tr_cond_df[, c("t", "condition_met", "selected_action",
                     "battery_pct_before", "dispatch_mode_before")], 8) |>
   kable(digits = 2)
 ```
 
 
 
-|    t|condition_met |action_taken | battery_pct_before|dispatch_mode_before |
-|----:|:-------------|:------------|------------------:|:--------------------|
-| 3.49|FALSE         |NA           |              80.00|idle                 |
-| 5.69|FALSE         |NA           |              65.72|in_transit           |
-| 6.18|FALSE         |NA           |              62.81|in_transit           |
+|    t|condition_met |selected_action | battery_pct_before|dispatch_mode_before |
+|----:|:-------------|:---------------|------------------:|:--------------------|
+| 3.49|FALSE         |NA              |              80.00|idle                 |
+| 5.69|FALSE         |NA              |              65.72|in_transit           |
+| 6.18|FALSE         |NA              |              62.81|in_transit           |
 
 
 

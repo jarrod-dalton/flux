@@ -1580,16 +1580,16 @@ teaching example that intentionally displays an error must opt in locally and ex
 - [x] Cap `payload_kg` at the declared 20 kg capacity in the base, weather-aware, and
       parameter-aware transitions in `tutorials/src/01_core_engine_scaffold.Rmd`; add only
       the short explanatory prose needed to make the schema/transition relationship clear.
-- [ ] After Q5, retain direct `param_ctx$params` access, correct the direct-run explanation,
+- [x] After Q5, retain direct `param_ctx$params` access, correct the direct-run explanation,
       and make field-level fallbacks work with an empty typed context.
 - [x] Make unexpected knitr errors fatal in `tutorials/render_for_github.R` and give each
       input a fresh evaluation environment.
 - [ ] Re-render all five canonical tutorials against the final source package stack; the
       command must exit nonzero on an unhandled error and must not leave `#> Error` blocks
       in published output.
-- [ ] Confirm Tutorial 01's ordinary cohort has 8 runs, its parameter cohort has 24 runs,
+- [x] Confirm Tutorial 01's ordinary cohort has 8 runs, its parameter cohort has 24 runs,
       and returned draws are direct, non-nested `ParamContext` objects.
-- [ ] Keep `tutorials/model/urban_delivery.R`, `urban_delivery_data.R`, the Tutorial 01
+- [x] Keep `tutorials/model/urban_delivery.R`, `urban_delivery_data.R`, the Tutorial 01
       structure, and unrelated prose outside Q9 unless the full render exposes a separately
       reviewed problem.
 
@@ -2126,3 +2126,5 @@ being resolved by silent scope expansion.
 | 2026-08-27 | Landed the coordinated fluxForecast adapter and RNG regressions (`d995752`), including the fluxCore 2.1 dependency floor, typed wrapping only at the public batch boundary, and stored-Engine seed-override coverage for batch and both streaming summaries. The full forecast suite passed 73 assertions with no failures or warnings. A focused downstream Q8 regression (`0dbe45a`) then proved that `forecast()` warning suppression does not hide model callback errors, bringing the suite to 74 clean assertions. This source-stack pass also closes Q4's downstream-consumer confirmation. |
 | 2026-08-27 | Cleared the pre-existing fluxForecast package-check noise in `3f0357b` by synchronizing five stale Rd usage signatures with their existing functions and excluding the submodule `.git` marker from source builds. A fresh non-CRAN package check completed with 0 errors, 0 warnings, and 0 notes. |
 | 2026-08-27 | Completed Q10 in root `74d5e46` and fluxCore `2db6088`: tightened the still-accurate 2.0.0 release blurb, removed and ignored the tracked local `AGENT_CONTEXT.md` while preserving its local copy, and refreshed the package README around the matching-clock, typed-parameter, trajectory-identity, and decisions/actions contracts. The affected copied example and public links were checked against the landed source stack. |
+| 2026-08-27 | Landed the focused Tutorial 01 Q9 repair in root `62d869c`: the ordinary and parameter cohorts now render 8 and 24 runs, callbacks read direct `param_ctx$params` fields with field-level defaults, and the returned draw is visibly one non-nested `ParamContext`. A fatal fresh-environment knit and direct no-draw fallback probe passed. |
+| 2026-08-27 | Completed a five-tutorial fatal-render baseline against the current source stack after installing local fluxPrepare 2.0.0. The run exposed and corrected Tutorial 03's one stale Q2 column name (`action_taken` -> `selected_action`) and replaced Tutorial 04's version-sensitive `~50x` object-size claim with accurate qualified prose. The final five-tutorial render remains gated on stable S3a-S3c implementation. |
