@@ -40,7 +40,12 @@ render_knit <- function(input) {
   out_dir <- if (basename(dirname(input)) == "src") dirname(dirname(input)) else dirname(input)
   output <- file.path(out_dir, paste0(tools::file_path_sans_ext(basename(input)), ".md"))
   message("Knitting ", input, " -> ", output)
-  knitr::knit(input, output = output, quiet = TRUE)
+  knitr::knit(
+    input,
+    output = output,
+    quiet = TRUE,
+    envir = new.env(parent = globalenv())
+  )
   txt <- readLines(output, warn = FALSE)
   txt <- gsub("\\(tutorials/figure/", "(figure/", txt)
   txt <- strip_yaml_frontmatter(txt)
@@ -59,7 +64,12 @@ render_spin <- function(input) {
   writeLines(txt, spun_rmd)
 
   message("Knitting ", spun_rmd, " -> ", output)
-  knitr::knit(spun_rmd, output = output, quiet = TRUE)
+  knitr::knit(
+    spun_rmd,
+    output = output,
+    quiet = TRUE,
+    envir = new.env(parent = globalenv())
+  )
   txt <- readLines(output, warn = FALSE)
   txt <- gsub("\\(tutorials/figure/", "(figure/", txt)
   txt <- strip_yaml_frontmatter(txt)
@@ -69,7 +79,7 @@ render_spin <- function(input) {
 
 ensure_dir("tutorials/figure")
 knitr::opts_knit$set(base.dir = repo_root, root.dir = repo_root)
-knitr::opts_chunk$set(fig.path = "figure/")
+knitr::opts_chunk$set(fig.path = "figure/", error = FALSE)
 
 knit_inputs <- c(
   "tutorials/src/01_core_engine_scaffold.Rmd",

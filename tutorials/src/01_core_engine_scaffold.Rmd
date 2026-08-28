@@ -124,6 +124,8 @@ Bundles can also expose optional hooks (`init_entity`, `refresh_rules`, `event_c
 
 Below is the smallest interesting bundle: a single **event process** named `dispatch` that fires at lognormal-distributed intervals, adds a noisy parcel of payload, and drains the battery by a random amount (mean ~12%). It stops when battery falls below 10% and records schema-relevant fields after each event.
 
+The model declares a 20 kg payload capacity, so each payload-changing transition in this tutorial caps the updated value at 20 kg. The schema remains a safety check if other code attempts an out-of-range update.
+
 ```{r}
 toy_bundle <- list(
   time_spec = time_spec(unit = "hours"),
@@ -138,8 +140,8 @@ toy_bundle <- list(
   transition = function(entity, event) {
     if (!identical(event$event_type, "dispatch")) return(list())
     list(
-      payload_kg  = max(0, as.numeric(entity$current$payload_kg) +
-                            stats::rnorm(1, mean = 2, sd = 0.5)),
+      payload_kg  = min(20, max(0, as.numeric(entity$current$payload_kg) +
+                                    stats::rnorm(1, mean = 2, sd = 0.5))),
       battery_pct = max(0, as.numeric(entity$current$battery_pct) -
                             stats::rlnorm(1, meanlog = 2.3, sdlog = 0.3))
     )
@@ -345,8 +347,8 @@ weather_aware_bundle <- list(
   transition = function(entity, event) {
     if (identical(event$event_type, "dispatch")) {
       return(list(
-        payload_kg  = max(0, as.numeric(entity$current$payload_kg) +
-                              stats::rnorm(1, mean = 2, sd = 0.5)),
+        payload_kg  = min(20, max(0, as.numeric(entity$current$payload_kg) +
+                                      stats::rnorm(1, mean = 2, sd = 0.5))),
         battery_pct = max(0, as.numeric(entity$current$battery_pct) -
                               stats::rlnorm(1, meanlog = 2.3, sdlog = 0.3))
       ))
@@ -821,8 +823,8 @@ toy_bundle_pd <- list(
     if (!identical(event$event_type, "dispatch")) return(list())
     drain_log <- if (!is.null(param_ctx)) param_ctx$params$drain_meanlog else 2.3
     list(
-      payload_kg  = max(0, as.numeric(entity$current$payload_kg) +
-                            stats::rnorm(1, mean = 2, sd = 0.5)),
+      payload_kg  = min(20, max(0, as.numeric(entity$current$payload_kg) +
+                                    stats::rnorm(1, mean = 2, sd = 0.5))),
       battery_pct = max(0, as.numeric(entity$current$battery_pct) -
                             stats::rlnorm(1, meanlog = drain_log, sdlog = 0.3))
     )

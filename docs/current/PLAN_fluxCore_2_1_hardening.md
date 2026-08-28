@@ -382,11 +382,11 @@ announced migration.
 `realized_event` (the trigger event), alter `proposed_actions`, or add staging dispositions,
 action ids, or later realization links. Those larger lineage questions remain S2.
 
-- [ ] Correct `TrajectoryRecord()` source documentation to define `selected_action` as the
+- [x] Correct `TrajectoryRecord()` source documentation to define `selected_action` as the
       policy selection recorded before pending-action resolution; regenerate its Rd file.
-- [ ] Rename `trajectory_table()` output to `selected_action` for both populated and empty
+- [x] Rename `trajectory_table()` output to `selected_action` for both populated and empty
       results; update its tests and generated documentation.
-- [ ] Add a focused `keep` regression in which the later policy selection differs from the
+- [x] Add a focused `keep` regression in which the later policy selection differs from the
       action that event history shows actually realized.
 - [ ] Update Tutorials 01 and 03 to use `selected_action` and teach readers to consult event
       history for realization; retain the urban food-delivery continuity constraint.
@@ -652,20 +652,20 @@ A list with a `$variables` field represents the full-schema shape. If that shape
 time conflicts with the bundle also errors. Variables-only schemas remain warning-free for
 `Entity$new()`, and direct `Engine$new(bundle = ...)` remains bundle-only and warning-free.
 
-- [ ] Add an assembly regression proving that independently constructed but semantically
+- [x] Add an assembly regression proving that independently constructed but semantically
       equal schema and bundle time specifications are accepted.
-- [ ] Reject mismatched unit, origin instant, origin class, or zone before any callback runs.
+- [x] Reject mismatched unit, origin instant, origin class, or zone before any callback runs.
 - [ ] Confirm `engine$time_spec`, single-run and cohort `sim_ctx$time_spec`, and downstream
       consumers all observe the one accepted runtime value.
-- [ ] Preserve direct `Engine$new(bundle = ...)` behavior.
-- [ ] Accept a genuinely variables-only `load_model()` schema with the bundle clock and one
+- [x] Preserve direct `Engine$new(bundle = ...)` behavior.
+- [x] Accept a genuinely variables-only `load_model()` schema with the bundle clock and one
       targeted migration warning; test its message and resolved runtime value.
-- [ ] Reject a full-schema shape that omits `$time_spec` rather than applying the fallback.
-- [ ] Confirm variables-only `Entity$new()` and direct `Engine$new(bundle = ...)` do not emit
+- [x] Reject a full-schema shape that omits `$time_spec` rather than applying the fallback.
+- [x] Confirm variables-only `Entity$new()` and direct `Engine$new(bundle = ...)` do not emit
       the `load_model()` migration warning.
-- [ ] Correct documentation that describes schema precedence, bundle-only precedence, or
+- [x] Correct documentation that describes schema precedence, bundle-only precedence, or
       nonexistent `entity$time_spec` callback access; teach one shared model declaration.
-- [ ] Keep variable-level units, general bundle composition, and cross-unit conversion out
+- [x] Keep variable-level units, general bundle composition, and cross-unit conversion out
       of Q4.
 
 #### Draft fluxCore issue
@@ -1028,17 +1028,17 @@ cohort/Engine boundary. It does not alter run ordering, event scheduling, seedin
 trajectory emission timing, or parallel collection. There is no new per-event computation
 beyond reading the already constructed `SimContext$run_id` as before.
 
-- [ ] Add the preassigned index `run_id` to each worker's internal run metadata before
+- [x] Add the preassigned index `run_id` to each worker's internal run metadata before
       calling `Engine$run()`.
-- [ ] Assert exact equality among the index id, run-list name, callback `sim_ctx$run_id`,
+- [x] Assert exact equality among the index id, run-list name, callback `sim_ctx$run_id`,
       and every trajectory-record id for each cohort run.
-- [ ] Strengthen the existing serial/cluster, serial/mclapply, and serial/future alignment
+- [x] Strengthen the existing serial/cluster, serial/mclapply, and serial/future alignment
       tests so trajectory signatures include `run_id` rather than accidentally ignoring it.
-- [ ] Add `run_id` and `entity_id` as the leading columns of populated and empty
+- [x] Add `run_id` and `entity_id` as the leading columns of populated and empty
       `trajectory_table()` output, alongside Q2's `selected_action` correction.
-- [ ] Document that cohort `run_id` is the batch-local join key while entity/draw/simulation
+- [x] Document that cohort `run_id` is the batch-local join key while entity/draw/simulation
       coordinates carry cross-call replay identity.
-- [ ] Preserve direct `Engine$run()` and `Engine$run_draw()` fallback behavior and keep a
+- [x] Preserve direct `Engine$run()` and `Engine$run_draw()` fallback behavior and keep a
       caller-supplied direct-run id, entity-id authority, and Q7 seeding outside Q6.
 
 #### Draft fluxCore issue
@@ -1576,12 +1576,12 @@ unexpected chunk errors to fatal and evaluate each source tutorial in a fresh en
 There are no intentionally failing chunks in the canonical rendered sequence; any future
 teaching example that intentionally displays an error must opt in locally and explain it.
 
-- [ ] Cap `payload_kg` at the declared 20 kg capacity in the base, weather-aware, and
+- [x] Cap `payload_kg` at the declared 20 kg capacity in the base, weather-aware, and
       parameter-aware transitions in `tutorials/src/01_core_engine_scaffold.Rmd`; add only
       the short explanatory prose needed to make the schema/transition relationship clear.
 - [ ] After Q5, retain direct `param_ctx$params` access, correct the direct-run explanation,
       and make field-level fallbacks work with an empty typed context.
-- [ ] Make unexpected knitr errors fatal in `tutorials/render_for_github.R` and give each
+- [x] Make unexpected knitr errors fatal in `tutorials/render_for_github.R` and give each
       input a fresh evaluation environment.
 - [ ] Re-render all five canonical tutorials against the final source package stack; the
       command must exit nonzero on an unhandled error and must not leave `#> Error` blocks
@@ -2115,3 +2115,6 @@ being resolved by silent scope expansion.
 | 2026-08-27 | Landed A1 (`afe7df1`), A2 (`3f29d61`), and Q1 (`eaaab13`) as separate tested fluxCore patches: positional compatibility restored, action provenance enforced, and all four pending modes observed through realization. |
 | 2026-08-27 | Landed Q8 (`3b7009c`) with fail-fast condition, policy, and action-handler errors; 139 focused and adjacent assertions passed without warnings or failures. |
 | 2026-08-27 | Landed Q3 (`8f6aa53`) with candidate-then-commit Entity updates; 184 focused/adjacent assertions passed (2 pre-existing skips). Alternating five-repetition benchmarks measured candidate/current elapsed ratios of 1.013 (20 variables, 3,000 sparse updates), 1.009 (500 variables, 1,000 full-width updates), and 0.996 (3,000-event prefill plus 1,000 sparse updates), so no material successful-path regression was observed. |
+| 2026-08-27 | Landed Q4 (`a0fa3d1`) with semantic full-schema/bundle clock agreement, one warned variables-only compatibility path, no private shadow clock, and 128 focused/adjacent assertions passing. Downstream-consumer confirmation remains paired with the coordinated forecast pass. |
+| 2026-08-27 | Landed Q2/Q6 (`d023993`) as one output-identity patch: cohort ids now reach callbacks and records, and flattened output starts with `run_id`, `entity_id` and uses `selected_action`. Focused serial/mclapply/future tests passed; after installing the same current source on PSOCK workers, the cluster regression passed 67 assertions. |
+| 2026-08-27 | Completed the independent Q9 repairs: all three Tutorial 01 payload transitions honor the declared 20 kg bound, and the renderer now treats unexpected chunk errors as fatal while using a fresh evaluation environment per input. Final parameter-example edits and full-sequence rendering remain gated on Q5. |
