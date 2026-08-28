@@ -157,7 +157,9 @@ The result is an indexed list of run outputs. `cohort_result$index` tells you
 which courier/parameter-draw/simulation each slot corresponds to.
 
 - `sim_id` is the simulation replicate number within a courier and parameter draw.
-- `run_id` is the unique row key for each realized run.
+- `run_id` is the batch-local join key for each realized run. The same value
+  names the run and appears in its callback context and trajectory records, so
+  outputs from this batch can be joined without relying on list position.
 
 ```{r}
 knitr::kable(head(cohort_result$index))

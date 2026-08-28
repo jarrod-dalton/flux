@@ -1,12 +1,14 @@
 # Plan — fluxCore 2.1 Contract Hardening and Completion
 
-**Status:** Contract review complete; implementation has not started.  
+**Status:** Approved Core implementation, public documentation, and localized downstream
+alignment are landed, while the coordinated ecosystem battery and release
+gate remain deferred until maintainer review.
 **Created:** 2026-08-26  
 **Target:** Complete the approved Core corrections, bounded grouped-decision extension,
 documentation, ecosystem handoff, and release verification for fluxCore 2.1.  
 **Historical parent:** [PLAN_fluxCore_issue11_action_lifecycle.md](./PLAN_fluxCore_issue11_action_lifecycle.md)  
-**Current fluxCore source:** `dff6fd6` (`Version: 2.1.0`)  
-**Current super-repo source:** `a72a524`
+**Current fluxCore checkpoint:** `b32a6ff` (`Version: 2.1.0`)
+**Current super-repo base for this status update:** `d5b5a43`
 
 ---
 
@@ -322,8 +324,8 @@ Approved issue comment (reviewed and posted 2026-08-27):
 
 ### Q1 — Prove the observable outcome of each pending-action mode
 
-**Status:** Agreed as test-only hardening. No runtime change is authorized unless a stronger
-test exposes a failure, which must return for separate discussion.
+**Status:** Complete in test-only fluxCore patch `eaaab13`; the stronger regression exposed
+no runtime defect.
 
 The current `.al_pending_model()` fixture schedules every action five time units after its
 trigger but ends after four events. Its tests therefore observe warning, silence, or error
@@ -355,8 +357,8 @@ fixture into scientist-facing documentation.
 
 ### Q2 — Name policy selection accurately in trajectory output
 
-**Status:** Agreed. Make a focused, explicitly documented output-schema correction in 2.1;
-do not add proposal-to-realization lineage here.
+**Status:** Complete in fluxCore `d023993`, release documentation `b32a6ff`, and the final
+tutorial path; no proposal-to-realization lineage was added.
 
 Core constructs a `TrajectoryRecord` during the decision-point firing, before the selected
 action is merged with any action already pending for that decision point. Therefore
@@ -388,17 +390,17 @@ action ids, or later realization links. Those larger lineage questions remain S2
       results; update its tests and generated documentation.
 - [x] Add a focused `keep` regression in which the later policy selection differs from the
       action that event history shows actually realized.
-- [ ] Update Tutorials 01 and 03 to use `selected_action` and teach readers to consult event
+- [x] Update Tutorials 01 and 03 to use `selected_action` and teach readers to consult event
       history for realization; retain the urban food-delivery continuity constraint.
-- [ ] Add a prominent fluxCore 2.1 NEWS migration note (`action_taken` ->
+- [x] Add a prominent fluxCore 2.1 NEWS migration note (`action_taken` ->
       `selected_action`) without rewriting the historical v2.0 plan or release notes.
 
 ### Tutorial 03 — progressive decisions-and-actions explanation
 
-**Status:** Agreed documentation requirement; detailed editing follows the focused runtime
-and test decisions it must explain.
+**Status:** Complete in the canonical Tutorial 03 source/rendered pair. The provisional
+duplicate was removed after a fatal full-sequence render succeeded.
 
-Curate the current provisional Tutorial 03 expansion
+The documentation requirement was to curate the former provisional Tutorial 03 expansion
 (`tutorials/src/03_decisions_policy_provisional.Rmd`) for ordinary scientists who are
 comfortable with R but should not need engine-internals vocabulary. The final tutorial must
 build concepts progressively rather than opening with lifecycle edge cases:
@@ -425,18 +427,18 @@ the same model.
 
 Examples should expose the relevant event times and entity state, not merely report that a
 run completed. Each nuanced example should be backed by a focused test or share the same
-fixture and expected behavior as one. Illustrative grouped-decision code must remain clearly
-labeled as proposed until issue #12 is implemented.
+fixture and expected behavior as one. Before S3 landed, grouped-decision code was required
+to remain clearly labeled as proposed; the final tutorial now uses the executable API.
 
-The current provisional draft's isolated `cycle_vars`/`cycle_bundle` opening does not meet
+The former provisional draft's isolated `cycle_vars`/`cycle_bundle` opening did not meet
 the continuity constraint and must be recast using the shared urban-delivery model. Any
 tutorial-local wrapper around `delivery_bundle()` must be introduced as a visible incremental
 change, with its scientific reason explained, rather than as a second hidden implementation.
 
-- [ ] Decide during documentation review whether Tutorial 03 retains its current
+- [x] Decide during documentation review whether Tutorial 03 retains its current
       `03_decisions_policy` filename or is renamed to reflect decisions and actions; do not
       rename it implicitly during semantic edits.
-- [ ] Replace the provisional tutorial only after its examples render from current source
+- [x] Replace the provisional tutorial only after its examples render from current source
       without hidden errors and its terminology matches the finalized contracts.
 
 ---
@@ -445,8 +447,8 @@ change, with its scientific reason explained, rather than as a second hidden imp
 
 ### Q3 — Failed entity updates leave a phantom committed event
 
-**Status:** Agreed. The repair is approved for narrow implementation inside
-`Entity$update()`; no GitHub issue has yet been posted and no source change has started.
+**Status:** Complete in fluxCore `8f6aa53`; the narrow `Entity$update()` repair and
+successful-path performance gate passed. The optional issue-posting draft remains unposted.
 
 **Agreed contract.** If patch shape checking, coercion, or validation rejects an update,
 `events`, `last_j`, `last_time`, `current`, and `hist` must all remain identical to their
@@ -603,8 +605,9 @@ Repeated event-table `rbind()` growth is a separate scaling concern and is not p
 
 ### Q4 — Enforce one model clock across schema and bundle
 
-**Status:** Implemented in fluxCore `a0fa3d1`; coordinated downstream confirmation was
-completed with fluxForecast `d995752`. The issue draft below remains unposted.
+**Status:** Implemented in fluxCore `a0fa3d1`; downstream confirmation is covered by
+fluxForecast `d995752` and the localized fluxOrchestrate clock repair `c4feb42`. The issue
+draft below remains unposted.
 
 The current v2 assembly path can hold two conflicting time specifications. `load_model()`
 prefers `schema$time_spec` but assigns that value only to the unused private
@@ -770,8 +773,8 @@ time conflicts with the bundle also errors. Variables-only schemas remain warnin
 ### Q5 — Make `ParamContext` the cohort draw boundary and preserve stable draw ids
 
 **Status:** Implemented in fluxCore `919025a` and the coordinated fluxForecast adapter
-`d995752`. Tutorial 01 rendering remains staged under Q9; the issue draft below remains
-unposted.
+`d995752`. Tutorial 01 renders cleanly and fluxModelTemplate's direct callback tests use
+typed contexts in `d47176e`; the issue draft below remains unposted.
 
 The documented parameter-draw contract is currently internally inconsistent.
 `bundle$sample_params(D)` is documented and taught as returning `list<ParamContext>`, but
@@ -865,7 +868,7 @@ sampling RNG ownership remain separate questions.
 - [x] Prove out-of-order and non-contiguous ids, canonical return/index order, full-cohort
       versus subset replay, and identical serial/parallel results and run-index alignment.
 - [x] Add regression coverage for direct parameter access and provenance preservation.
-- [ ] Render Tutorial 01's urban-delivery parameter example without hidden errors under Q9.
+- [x] Render Tutorial 01's urban-delivery parameter example without hidden errors under Q9.
 - [x] Keep Q6 run identity, Q7 RuntimeContext seeding, provider reactivation, structured
       provenance, and new callback injection outside this implementation.
 
@@ -972,8 +975,8 @@ sampling RNG ownership remain separate questions.
 
 ### Q6 — Propagate the cohort-owned run identity
 
-**Status:** Agreed. Repair the missing cohort metadata propagation and retain the canonical
-join fields in flattened trajectory output.
+**Status:** Complete in fluxCore `d023993`. The repair propagates cohort metadata and retains
+the canonical join fields in flattened trajectory output.
 
 `run_cohort()` constructs a correctly aligned index with a unique `run_id` for every
 `(entity_id, param_draw_id, sim_id)` row and later uses those ids as the names of
@@ -1156,8 +1159,7 @@ beyond reading the already constructed `SimContext$run_id` as before.
 ### Q7 — Give each execution path one RNG owner
 
 **Status:** Implemented in fluxCore `919025a` with coordinated fluxForecast regressions in
-`d995752`. Tutorial integration remains staged under Q9; the issue draft below remains
-unposted.
+`d995752`. Tutorial integration is complete; the issue draft below remains unposted.
 
 The defect is two competing seed owners. `run_cohort()` correctly derives and sets a local
 seed for every `(entity_id, param_draw_id, sim_id)` row. `Engine$run()` then sees the
@@ -1233,7 +1235,7 @@ uses the wrong seed or collapses supposedly independent replicates.
       collapse.
 - [x] Correct RuntimeContext, `run_cohort()`, and `run_draw()` documentation and add a NEWS
       note for seeded loaded-Engine results that change under the corrected ownership.
-- [ ] Correct the corresponding tutorial documentation under Q9.
+- [x] Correct the corresponding tutorial documentation under Q9.
 - [x] Keep parameter-draw sampling, a new public seed-allocation API, arbitrary cohort
       `sim_id` values, and `.seed_for()` hash redesign outside Q7.
 
@@ -1336,7 +1338,9 @@ uses the wrong seed or collapses supposedly independent replicates.
 
 ### Q8 — Fail fast when decision callbacks throw
 
-**Status:** Agreed; filed as [fluxCore issue #13](https://github.com/jarrod-dalton/fluxCore/issues/13).
+**Status:** Complete in fluxCore `3b7009c`, with the downstream decision-callback regression
+corrected in fluxForecast `1dfee1e`; filed as
+[fluxCore issue #13](https://github.com/jarrod-dalton/fluxCore/issues/13).
 A thrown condition, policy, or action-handler error must terminate the run with callback
 context. Intentional `FALSE` and `NULL` returns remain valid model outcomes. Track the
 correction as a fluxCore bug because the current behavior can make a failed callback
@@ -1392,11 +1396,11 @@ answer without discussion.
 - [x] Add condition-shape tests for length zero, length greater than one, `NA`, and
       non-logical values.
 - [x] Confirm fluxForecast's warning suppression does not hide the newly propagated errors.
-- [ ] Capture the callback-guidance changes and known affected fluxDesign surfaces in E1's
+- [x] Capture the callback-guidance changes and known affected fluxDesign surfaces in E1's
       final contract-sync prompt; generated model code should catch errors only when it
       intentionally defines a domain fallback. Do not edit the sibling repo as part of the
       focused Q8 Core implementation.
-- [ ] Document the partial-progress boundary: trigger state can already be committed when a
+- [x] Document the partial-progress boundary: trigger state can already be committed when a
       condition or policy fails, but a failing action handler does not realize its action.
 - [x] Keep neighboring invalid-policy, disallowed-action, observation, and trigger-shape
       contracts outside Q8 pending their own review.
@@ -1534,10 +1538,9 @@ answer without discussion.
 
 ### Q9/Q10 — Verify the tutorial path and refresh the release-facing entry points together
 
-**Status:** Agreed as one final documentation pass after the approved runtime contracts are
-implemented. Keep Tutorial 01 changes local and corrective; preserve the accessible
-introductions in both READMEs; and do not present 2.1 as released before the coordinated
-release actually exists.
+**Status:** Complete through the fatal five-tutorial render and release-facing documentation
+checkpoints. The documents do not present 2.1 as released before the coordinated release
+exists.
 
 #### Q9 — Tutorial 01 correctness and render verification
 
@@ -1584,7 +1587,7 @@ teaching example that intentionally displays an error must opt in locally and ex
       and make field-level fallbacks work with an empty typed context.
 - [x] Make unexpected knitr errors fatal in `tutorials/render_for_github.R` and give each
       input a fresh evaluation environment.
-- [ ] Re-render all five canonical tutorials against the final source package stack; the
+- [x] Re-render all five canonical tutorials against the final source package stack; the
       command must exit nonzero on an unhandled error and must not leave `#> Error` blocks
       in published output.
 - [x] Confirm Tutorial 01's ordinary cohort has 8 runs, its parameter cohort has 24 runs,
@@ -1654,8 +1657,9 @@ should depend on its contents.
 
 ### S3 — Add grouped decision points as a bounded 2.1 extension
 
-**Status:** S3a–S3c are landed and verified; S3d tutorial, release-note, and ecosystem
-verification is the active gate. This is justified by a real modeling gap—one
+**Status:** S3a–S3d implementation, Core verification, and public documentation are landed.
+The coordinated source-stack ecosystem battery remains a maintainer-review gate. This is
+justified by a real modeling gap—one
 policy consultation sometimes needs to coordinate selections across several existing
 decision points—not by the desire to add a headline feature. Defer S3 if implementation
 expands into general workflows, rollback, joint action realization, or comprehensive action
@@ -1965,15 +1969,17 @@ eligibility; policy chooses among valid actions only for that eligible set. The 
 not require readers to understand pending-store implementation details before they can
 understand the scientific behavior.
 
-- [ ] Add the progressive grouped urban-delivery example to Tutorial 03 only after S3a–S3c
+- [x] Add the progressive grouped urban-delivery example to Tutorial 03 only after S3a–S3c
       are stable; do not front-load the tutorial with grouped edge cases.
-- [ ] Explain ordinary shared triggers before grouped policy consultation, and relegate the
+- [x] Explain ordinary shared triggers before grouped policy consultation, and relegate the
       explicit per-member plan-adapter pattern to an advanced note rather than presenting
       it as an implicit fallback.
-- [ ] Document the additive API and its deliberately narrow atomicity/lineage boundary in
+- [x] Document the additive API and its deliberately narrow atomicity/lineage boundary in
       fluxCore NEWS and reference documentation.
-- [ ] Run focused grouped-decision tests, the complete pre-existing no-group suite, package
-      check, all five tutorials with fatal errors, and the source-stack ecosystem battery.
+- [x] Run focused grouped-decision tests, the complete pre-existing no-group suite, package
+      check, and all five tutorials with fatal errors.
+- [ ] Run the coordinated source-stack ecosystem battery after maintainer review of the
+      overnight patches; this is intentionally deferred from the overnight goal.
 
 **Explicitly outside S3:** S1 bundle composition changes; full S2 proposal-to-realization
 lineage; multiple actions per leaf; cancellation semantics; nested or dynamic groups;
@@ -1982,11 +1988,10 @@ realization/effects; sequencing, priority, barriers, workflows, and trigger-even
 
 ### E1 — Prepare the fluxDesign 2.1 contract-sync handoff prompt
 
-**Status:** Agreed deliverable, intentionally authored only after the fluxCore 2.1 runtime,
-documentation, and verification results are stable. The working artifact is
-`docs/current/PROMPT_fluxDesign_fluxCore_2_1_contract_sync.md`; creating it later is part of
-this plan, while applying it in the sibling fluxDesign repository is a separately reviewed
-follow-up.
+**Status:** Drafted from the landed Core/runtime/tutorial surface and ready for explicit
+maintainer review. The artifact is
+`docs/current/PROMPT_fluxDesign_fluxCore_2_1_contract_sync.md`; applying it in the sibling
+fluxDesign repository is a separately reviewed follow-up.
 
 **Evidence.** fluxDesign skills, prompts, schemas, examples, review guidance, and generated
 package behavior encode fluxCore contracts. The approved 2.1 work changes or clarifies
@@ -2016,14 +2021,31 @@ of this discussion log. It should:
 6. define acceptance checks showing that updated skills generate and audit packages that
    install and run against the final fluxCore 2.1 source contract.
 
-- [ ] After Core implementation and documentation stabilize, inventory the actual
+- [x] After Core implementation and documentation stabilize, inventory the actual
       fluxDesign surfaces and replace generic categories above with verified paths/names.
-- [ ] Author the standalone `.md` handoff prompt with concise source citations, exact
+- [x] Author the standalone `.md` handoff prompt with concise source citations, exact
       required changes, exclusions, and acceptance checks.
-- [ ] Review the prompt against the final Core diff, NEWS, Tutorial 03, package checks, and
+- [x] Review the prompt against the final Core diff, NEWS, Tutorial 03, package checks, and
       issue outcomes; remove provisional syntax and any contract that did not land.
 - [ ] Obtain explicit review before using the prompt to change fluxDesign skills or other
       sibling-repository artifacts.
+
+### Overnight findings held for maintainer review
+
+- `fluxForecast::forecast()` still wraps `run_cohort()` in broad warning suppression. The
+  corrected Q8 regression proves errors propagate, but an intentionally configured
+  `on_pending_action = "warn"` diagnostic can be hidden. Removing suppression naively could
+  flood large cohort runs, so the desired aggregation/surfacing contract needs discussion;
+  no production change was made overnight.
+- Package versions, remaining downstream fluxCore dependency floors, root release metadata,
+  and release-script defaults were not advanced to 2.1. In particular, the active release
+  script still defaults to 2.0.0 and an older duplicate under `resources/scripts/release/`
+  remains stale. These belong to the coordinated release pass, not an implementation patch.
+- The full source-stack ecosystem battery was deliberately not run under the overnight goal.
+  Individual changed-package suites/checks passed; install-order and coordinated cross-repo
+  verification remain the first release-gate task after review.
+- The optional Q3–Q7 issue drafts remain unposted, and the E1 prompt has not been applied to
+  fluxDesign. Neither should be treated as silently approved external work.
 
 ---
 
@@ -2035,20 +2057,20 @@ S1 and S2 are deliberately deferred and must not enter through implementation dr
 | ID | Candidate | Evidence summary | State |
 |---|---|---|---|
 | D1 | Pending-action batch semantics | Ordinary decision points remain independent; partial local state cannot escape a failed run. | Agreed: no 2.1 runtime change; issue #12 clarification posted |
-| Q1 | Pending-mode test depth | Existing tests stop before either competing action can realize. | Agreed: test-only hardening |
-| Q2 | Trajectory terminology | Policy selection is recorded before pending resolution; `action_taken` incorrectly implies realization. | Agreed: direct rename and documentation correction |
-| Q3 | Entity update atomicity | A rejected patch leaves a phantom event and advanced clock on the caller-owned Entity. | Agreed: narrow candidate-then-commit repair; issue draft prepared |
-| Q4 | Canonical time authority | `load_model()` records schema time privately while callbacks use the bundle-owned public field. A mismatch runs silently in bundle units. Reproduced. | Agreed: one enforced clock plus warned variables-only fallback; issue draft prepared |
-| Q5 | Parameter-draw shape and identity | Documented `ParamContext` draws are wrapped inside another context; original identity/provenance are displaced and the parameter tutorial errors. Reproduced. | Agreed: typed-only cohort boundary with stable, order-independent ids; issue draft prepared |
-| Q6 | Cohort run identity | Cohort index and run-list ids vary, but callback contexts and trajectory records all default to `run_1`; flattening also drops the join key. Reproduced. | Agreed: propagate the batch id and retain identity columns; issue draft prepared |
-| Q7 | RNG ownership | A seed stored on a loaded Engine overrides cohort and streaming seeds, collapsing nominally distinct replicates. Reproduced. | Agreed: one outer execution owner, private handoff marker, and no common-path API expansion; issue draft prepared |
-| Q8 | Callback failure semantics | Condition, policy, and action-handler errors can become veto, no-action, or realized no-effect behavior through warnings. Reproduced. | Agreed: fail fast with callback context; [issue #13 filed](https://github.com/jarrod-dalton/fluxCore/issues/13) |
-| Q9 | Tutorial verification | Tutorial 01 has one local capacity inconsistency plus the Q5 context defect; the renderer embeds both and exits successfully. | Agreed: narrow Tutorial 01 repair plus fatal, isolated full-sequence rendering |
-| Q10 | Release-facing entry points | Root release metadata is currently accurate at 2.0.0, but its blurb can be tighter; fluxCore README contracts are stale and local maintainer context is mistakenly tracked/linked. | Agreed: combined final documentation pass; ignore/untrack local context |
+| Q1 | Pending-mode test depth | Existing tests stop before either competing action can realize. | Complete: observable mode outcomes tested through realization |
+| Q2 | Trajectory terminology | Policy selection is recorded before pending resolution; `action_taken` incorrectly implies realization. | Complete: direct rename, migration note, tests, and tutorials |
+| Q3 | Entity update atomicity | A rejected patch leaves a phantom event and advanced clock on the caller-owned Entity. | Complete: narrow candidate-then-commit repair and regressions; issue draft retained |
+| Q4 | Canonical time authority | `load_model()` records schema time privately while callbacks use the bundle-owned public field. A mismatch runs silently in bundle units. Reproduced. | Complete in Core; localized Orchestrate alignment landed separately |
+| Q5 | Parameter-draw shape and identity | Documented `ParamContext` draws are wrapped inside another context; original identity/provenance are displaced and the parameter tutorial errors. Reproduced. | Complete in Core/Forecast and rendered tutorial path |
+| Q6 | Cohort run identity | Cohort index and run-list ids vary, but callback contexts and trajectory records all default to `run_1`; flattening also drops the join key. Reproduced. | Complete: batch id propagated and retained in output |
+| Q7 | RNG ownership | A seed stored on a loaded Engine overrides cohort and streaming seeds, collapsing nominally distinct replicates. Reproduced. | Complete: one outer execution owner and downstream regressions |
+| Q8 | Callback failure semantics | Condition, policy, and action-handler errors can become veto, no-action, or realized no-effect behavior through warnings. Reproduced. | Complete in Core; [issue #13 filed](https://github.com/jarrod-dalton/fluxCore/issues/13); fluxDesign handoff drafted |
+| Q9 | Tutorial verification | Tutorial 01 has one local capacity inconsistency plus the Q5 context defect; the renderer embeds both and exits successfully. | Complete: narrow repair and fatal, isolated five-tutorial render |
+| Q10 | Release-facing entry points | Root release metadata is currently accurate at 2.0.0, but its blurb can be tighter; fluxCore README contracts are stale and local maintainer context is mistakenly tracked/linked. | Complete: focused README refresh and local-context cleanup |
 | S1 | `compose_bundles()` v2 contract | The helper has broader callback and ownership drift than a safe issue-11 follow-up. | Deferred to a separate design |
 | S2 | Full proposal-to-realization lineage | Would require new ids/disposition fields and a larger trajectory contract. | Deferred |
-| S3 | Grouped decision points | A trigger-bearing group coordinates one policy plan across existing leaf decisions while actions realize independently. | Approved for bounded, staged v2.1 implementation |
-| E1 | fluxDesign 2.1 contract-sync prompt | fluxDesign encodes Core contracts across skills, prompts, schemas, generators, examples, and audits; partial updates would generate stale models. | Agreed: author evidence-backed handoff after Core stabilizes |
+| S3 | Grouped decision points | A trigger-bearing group coordinates one policy plan across existing leaf decisions while actions realize independently. | Complete through S3d; coordinated ecosystem battery pending review |
+| E1 | fluxDesign 2.1 contract-sync prompt | fluxDesign encodes Core contracts across skills, prompts, schemas, generators, examples, and audits; partial updates would generate stale models. | Draft complete; explicit review required before applying it |
 
 ## Agreed staging
 
@@ -2079,7 +2101,7 @@ being resolved by silent scope expansion.
 10. **Landing/release gate:** explicit review before commit/push/tag/CRAN or coordinated
     ecosystem-release actions, including the separately reviewed fluxDesign follow-up.
 
-## Current verification baseline
+## Pre-implementation verification baseline
 
 - Focused issue-11 lifecycle test file: 47 passing assertions, 0 failures, 2 warnings.
 - Full fluxCore test suite: 429 passes, 0 failures, 3 warnings, 3 skips.
@@ -2143,3 +2165,9 @@ being resolved by silent scope expansion.
 | 2026-08-27 | Completed the S3b adapter acceptance matrix in test-only follow-up `0642b5f`: declared-order two-action staging, an intentional all-`NULL` plan, and an invalid member result are now explicit regressions. The focused file passed 120 assertions and the full Core suite passed 958, with only the existing intentional warning and four environment/legacy skips. |
 | 2026-08-27 | Landed S3c in fluxCore `18ec1fb`: raw trajectory rows now carry paired static group and deterministic run-local activation ids; accepted plan metadata remains raw-only; eligible, explicit-`NULL`, and opted-in veto leaves retain canonical member order without a synthetic parent row; and group-only activations capture true before/after state. Independent review found no blocker. The focused gate passed 461 assertions, the full suite passed 1,025, and the non-CRAN package check completed with 0 errors, 0 warnings, and 0 notes. |
 | 2026-08-27 | Landed the narrow Tutorial 01 Q2/S2 terminology correction in root `5f53f43`: `realized_event` is now explained as the trigger event, displayed output says “Action selected,” and the prose no longer treats a policy selection or post-trigger state as proof of later action realization or a complete RL next-state transition. A fresh fatal render passed. |
+| 2026-08-27 | Completed S3d Core documentation in fluxCore `b32a6ff`: the grouped callback, complete-plan staging, audit identity, partial-progress boundaries, `selected_action` migration, and bounded public API are synchronized across source comments, Rd, README, and NEWS. The full 1,025-assertion suite retained only the known intentional warning/environment skips, and package check completed with 0 errors, 0 warnings, and 0 notes. |
+| 2026-08-27 | Landed the canonical progressive Tutorial 03 and Core documentation pointer in root `f2e6a4f`. Every executable example extends the shared urban food-delivery model; ordinary selection/pending/realization/effect concepts precede shared ordinary triggers and grouped consultation; the healthy, low-battery, zero-eligible, and explicit-`NULL` scenarios rendered without hidden errors. The obsolete provisional source/rendered duplicates were removed. |
+| 2026-08-27 | A read-only downstream audit found one executable Core 2.1 blocker in fluxOrchestrate: its bundle constructors omitted the required runtime clock, its time diagnostic read the obsolete context field, and its toy parameter override bypassed typed `ParamContext$params`. Localized patch `c4feb42` now enforces semantically matching constituent clocks, runs the toy bundle through Core, and aligns typed contexts without adding deferred S1 decision-schema composition. The full suite passed 54 assertions and package check completed 0/0/0. |
+| 2026-08-27 | Drafted `PROMPT_fluxDesign_fluxCore_2_1_contract_sync.md` from the final Core diff, NEWS, Tutorial 03, regression evidence, and a verified fluxDesign surface inventory. The prompt makes model-spec versioning/migration an explicit review gate, covers skills/prompts/schema/app/codegen/audit fixtures, and excludes deferred S1/S2 behavior. Applying it to fluxDesign remains subject to explicit review. |
+| 2026-08-27 | Corrected fluxForecast's downstream Q8 evidence in `1dfee1e`: its regression now throws from a real decision condition through `forecast()` and `run_cohort()` rather than from a transition, while production warning suppression remains unchanged. All 74 tests passed and repository-only docs were excluded from the package tarball, restoring package check to 0/0/0. |
+| 2026-08-27 | Aligned fluxModelTemplate's direct callback fixtures with real typed contexts in `d47176e`; the stronger tests exposed no runtime defect. Added the missing documentation for its three exported template entry points and excluded the submodule marker from source builds. All 31 tests passed and package check improved from one warning/one note to 0/0/0. |
