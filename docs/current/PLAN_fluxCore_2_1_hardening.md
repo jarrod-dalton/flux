@@ -603,8 +603,8 @@ Repeated event-table `rbind()` growth is a separate scaling concern and is not p
 
 ### Q4 — Enforce one model clock across schema and bundle
 
-**Status:** Agreed. The schema/bundle agreement and variables-only compatibility contracts
-are approved for focused implementation.
+**Status:** Implemented in fluxCore `a0fa3d1`; coordinated downstream confirmation was
+completed with fluxForecast `d995752`. The issue draft below remains unposted.
 
 The current v2 assembly path can hold two conflicting time specifications. `load_model()`
 prefers `schema$time_spec` but assigns that value only to the unused private
@@ -655,7 +655,7 @@ time conflicts with the bundle also errors. Variables-only schemas remain warnin
 - [x] Add an assembly regression proving that independently constructed but semantically
       equal schema and bundle time specifications are accepted.
 - [x] Reject mismatched unit, origin instant, origin class, or zone before any callback runs.
-- [ ] Confirm `engine$time_spec`, single-run and cohort `sim_ctx$time_spec`, and downstream
+- [x] Confirm `engine$time_spec`, single-run and cohort `sim_ctx$time_spec`, and downstream
       consumers all observe the one accepted runtime value.
 - [x] Preserve direct `Engine$new(bundle = ...)` behavior.
 - [x] Accept a genuinely variables-only `load_model()` schema with the bundle clock and one
@@ -769,9 +769,9 @@ time conflicts with the bundle also errors. Variables-only schemas remain warnin
 
 ### Q5 — Make `ParamContext` the cohort draw boundary and preserve stable draw ids
 
-**Status:** Agreed. Repair the nested-context defect and make draw identity independent of
-list position or parallel completion order. The active implementation remains localized to
-cohort draw normalization, Engine context injection, and one fluxForecast adapter.
+**Status:** Implemented in fluxCore `919025a` and the coordinated fluxForecast adapter
+`d995752`. Tutorial 01 rendering remains staged under Q9; the issue draft below remains
+unposted.
 
 The documented parameter-draw contract is currently internally inconsistent.
 `bundle$sample_params(D)` is documented and taught as returning `list<ParamContext>`, but
@@ -845,28 +845,28 @@ changing `load_model()`'s unused `param_source` field. Structured provenance, pa
 value-schema validation, callback-surface expansion (including `observe()`), and parameter
 sampling RNG ownership remain separate questions.
 
-- [ ] Harden `ParamContext()` to accept a positive, losslessly integer-valued scalar id and
+- [x] Harden `ParamContext()` to accept a positive, losslessly integer-valued scalar id and
       preserve the current `5.0` -> `5L` convenience without accepting truncation.
-- [ ] Normalize all cohort draws once; reject a bare payload list, a single `ParamContext`
+- [x] Normalize all cohort draws once; reject a bare payload list, a single `ParamContext`
       passed as the outer collection, wrong length, non-context elements, invalid ids, and
       duplicate ids before callbacks or workers start.
-- [ ] Sort contexts by stable id, build an explicit id/position mapping, use actual ids in
+- [x] Sort contexts by stable id, build an explicit id/position mapping, use actual ids in
       the cohort index and seed coordinates, and return the canonical typed collection.
-- [ ] Pass the selected context through the internal cohort/Engine boundary without
+- [x] Pass the selected context through the internal cohort/Engine boundary without
       rebuilding it or losing provenance; confirm proposal, transition, stop, policy, and
       action-handler callbacks see the same direct fields throughout a run.
-- [ ] Construct typed `1:D` fallback contexts from `bundle$params` or `list()` when no
+- [x] Construct typed `1:D` fallback contexts from `bundle$params` or `list()` when no
       sampling hook is supplied; require `bundle$sample_params(D)` to return typed contexts.
-- [ ] Preserve `Engine$run_draw(params = ...)` and direct `Engine$run()` payload behavior,
+- [x] Preserve `Engine$run_draw(params = ...)` and direct `Engine$run()` payload behavior,
       while documenting that direct callbacks receive a default `ParamContext`, not `NULL`.
-- [ ] Adapt fluxForecast's single batch call by wrapping its public bare `param_sets` values
+- [x] Adapt fluxForecast's single batch call by wrapping its public bare `param_sets` values
       as contexts; leave its streaming `run_draw()` paths unchanged, raise the fluxCore
       dependency floor to the corrected 2.1 release, and test the coordinated source stack.
-- [ ] Prove out-of-order and non-contiguous ids, canonical return/index order, full-cohort
+- [x] Prove out-of-order and non-contiguous ids, canonical return/index order, full-cohort
       versus subset replay, and identical serial/parallel results and run-index alignment.
-- [ ] Add regression coverage for direct parameter access and provenance preservation, and
-      render Tutorial 01's urban-delivery parameter example without hidden errors.
-- [ ] Keep Q6 run identity, Q7 RuntimeContext seeding, provider reactivation, structured
+- [x] Add regression coverage for direct parameter access and provenance preservation.
+- [ ] Render Tutorial 01's urban-delivery parameter example without hidden errors under Q9.
+- [x] Keep Q6 run identity, Q7 RuntimeContext seeding, provider reactivation, structured
       provenance, and new callback injection outside this implementation.
 
 #### Draft fluxCore issue
@@ -1155,9 +1155,9 @@ beyond reading the already constructed `SimContext$run_id` as before.
 
 ### Q7 — Give each execution path one RNG owner
 
-**Status:** Agreed. Prevent a configured Engine from reseeding work that a cohort or
-lower-level run harness has already seeded. Keep the common API unchanged and keep RNG
-ownership metadata private to Core.
+**Status:** Implemented in fluxCore `919025a` with coordinated fluxForecast regressions in
+`d995752`. Tutorial integration remains staged under Q9; the issue draft below remains
+unposted.
 
 The defect is two competing seed owners. `run_cohort()` correctly derives and sets a local
 seed for every `(entity_id, param_draw_id, sim_id)` row. `Engine$run()` then sees the
@@ -1214,26 +1214,27 @@ stable draw identity, or the known collision limitations of `.seed_for()`. Those
 separate decisions. Numerically different results are expected only where current execution
 uses the wrong seed or collapses supposedly independent replicates.
 
-- [ ] Resolve effective cohort seed/backend/worker settings once using the approved
+- [x] Resolve effective cohort seed/backend/worker settings once using the approved
       precedence, including stored Engine defaults when no higher-precedence value exists.
-- [ ] Give cohort and `run_draw()` Engine calls an explicit private RNG-ownership marker and
+- [x] Give cohort and `run_draw()` Engine calls an explicit private RNG-ownership marker and
       suppress only the Engine's second seed operation.
-- [ ] Keep direct `Engine$run()` stored-RuntimeContext behavior unchanged.
-- [ ] Reject a non-`NULL` `replicate_id` on a RuntimeContext explicitly supplied to
+- [x] Keep direct `Engine$run()` stored-RuntimeContext behavior unchanged.
+- [x] Reject a non-`NULL` `replicate_id` on a RuntimeContext explicitly supplied to
       `run_cohort()`; document `sim_id` as the cohort replicate coordinate.
-- [ ] Prove that an explicit cohort seed/runtime overrides a different stored Engine seed,
+- [x] Prove that an explicit cohort seed/runtime overrides a different stored Engine seed,
       produces distinct simulation streams, and reproduces them on a repeat call.
-- [ ] Prove parity across serial and supported parallel backends, using complete stochastic
+- [x] Prove parity across serial and supported parallel backends, using complete stochastic
       outputs rather than only event counts.
-- [ ] Test inheritance from a stored Engine runtime and the explicit unseeded override.
-- [ ] Add direct-run and `run_draw()` regressions showing respectively that stored-runtime
+- [x] Test inheritance from a stored Engine runtime and the explicit unseeded override.
+- [x] Add direct-run and `run_draw()` regressions showing respectively that stored-runtime
       seeding is preserved and caller-owned RNG state is not overwritten.
-- [ ] Add fluxForecast batch plus both streaming-summary regressions using an Engine with a
+- [x] Add fluxForecast batch plus both streaming-summary regressions using an Engine with a
       different stored seed; its public `seed` must control execution and replicates must not
       collapse.
-- [ ] Correct RuntimeContext, `run_cohort()`, `run_draw()`, and tutorial documentation; add a
-      NEWS note for seeded loaded-Engine results that change under the corrected ownership.
-- [ ] Keep parameter-draw sampling, a new public seed-allocation API, arbitrary cohort
+- [x] Correct RuntimeContext, `run_cohort()`, and `run_draw()` documentation and add a NEWS
+      note for seeded loaded-Engine results that change under the corrected ownership.
+- [ ] Correct the corresponding tutorial documentation under Q9.
+- [x] Keep parameter-draw sampling, a new public seed-allocation API, arbitrary cohort
       `sim_id` values, and `.seed_for()` hash redesign outside Q7.
 
 #### Draft fluxCore issue
@@ -1390,7 +1391,7 @@ answer without discussion.
       `NULL`, so fail-fast does not erase supported no-decision/no-effect behavior.
 - [x] Add condition-shape tests for length zero, length greater than one, `NA`, and
       non-logical values.
-- [ ] Confirm fluxForecast's warning suppression does not hide the newly propagated errors.
+- [x] Confirm fluxForecast's warning suppression does not hide the newly propagated errors.
 - [ ] Capture the callback-guidance changes and known affected fluxDesign surfaces in E1's
       final contract-sync prompt; generated model code should catch errors only when it
       intentionally defines a domain fallback. Do not edit the sibling repo as part of the
@@ -1594,6 +1595,9 @@ teaching example that intentionally displays an error must opt in locally and ex
 
 #### Q10 — Root README, fluxCore README, and local maintainer context
 
+**Status:** Completed in root `74d5e46` and fluxCore `2db6088`. Release-time 2.1 version
+metadata remains part of the coordinated release gate rather than this documentation pass.
+
 The original Q10 finding referred to the super-repo `README.md` and
 `docs/current/AGENT_CONTEXT.md`. The fluxCore README should be reviewed in the same pass
 because it is the package's public contract-facing entry point. `AGENT_CONTEXT.md`, by
@@ -1636,16 +1640,16 @@ with that local role. Remove the public pointer, add the file to the root ignore
 stop tracking it while preserving the maintainer's local copy. No release-facing document
 should depend on its contents.
 
-- [ ] Tighten the root latest-release blurb without displacing its introductory content;
+- [x] Tighten the root latest-release blurb without displacing its introductory content;
       keep the version synchronized with actual release metadata.
-- [ ] Apply the focused fluxCore README contract corrections above without expanding it
+- [x] Apply the focused fluxCore README contract corrections above without expanding it
       into a long decisions/actions tutorial.
-- [ ] Remove the `AGENT_CONTEXT.md` pointer from `docs/README.md`, add the local context file
+- [x] Remove the `AGENT_CONTEXT.md` pointer from `docs/README.md`, add the local context file
       to the root ignore rules, and untrack it without deleting the maintainer's local copy.
-- [ ] Run every copied README example affected by the edits against the final source stack,
+- [x] Run every copied README example affected by the edits against the landed source stack,
       validate local links, and search the public entry points for superseded names or
       contracts.
-- [ ] Keep detailed per-fix release notes in NEWS/the release announcement rather than the
+- [x] Keep detailed per-fix release notes in NEWS/the release announcement rather than the
       README summary, and do not rewrite historical NEWS entries.
 
 ### S3 — Add grouped decision points as a bounded 2.1 extension
@@ -2118,3 +2122,7 @@ being resolved by silent scope expansion.
 | 2026-08-27 | Landed Q4 (`a0fa3d1`) with semantic full-schema/bundle clock agreement, one warned variables-only compatibility path, no private shadow clock, and 128 focused/adjacent assertions passing. Downstream-consumer confirmation remains paired with the coordinated forecast pass. |
 | 2026-08-27 | Landed Q2/Q6 (`d023993`) as one output-identity patch: cohort ids now reach callbacks and records, and flattened output starts with `run_id`, `entity_id` and uses `selected_action`. Focused serial/mclapply/future tests passed; after installing the same current source on PSOCK workers, the cluster regression passed 67 assertions. |
 | 2026-08-27 | Completed the independent Q9 repairs: all three Tutorial 01 payload transitions honor the declared 20 kg bound, and the renderer now treats unexpected chunk errors as fatal while using a fresh evaluation environment per input. Final parameter-example edits and full-sequence rendering remain gated on Q5. |
+| 2026-08-27 | Landed Q5/Q7 in fluxCore (`919025a`): cohort draws now cross the boundary as validated, canonically ordered typed contexts with stable ids and preserved provenance, while each execution path has one RNG owner and stable-id lookup remains outside the event loop. The full Core suite recorded 760 passes, no failures or errors, one known pre-existing warning, and four skips; an enabled two-worker Future multisession run passed all 89 focused assertions without warnings or skips. Tutorial integration remains under Q9. |
+| 2026-08-27 | Landed the coordinated fluxForecast adapter and RNG regressions (`d995752`), including the fluxCore 2.1 dependency floor, typed wrapping only at the public batch boundary, and stored-Engine seed-override coverage for batch and both streaming summaries. The full forecast suite passed 73 assertions with no failures or warnings. A focused downstream Q8 regression (`0dbe45a`) then proved that `forecast()` warning suppression does not hide model callback errors, bringing the suite to 74 clean assertions. This source-stack pass also closes Q4's downstream-consumer confirmation. |
+| 2026-08-27 | Cleared the pre-existing fluxForecast package-check noise in `3f0357b` by synchronizing five stale Rd usage signatures with their existing functions and excluding the submodule `.git` marker from source builds. A fresh non-CRAN package check completed with 0 errors, 0 warnings, and 0 notes. |
+| 2026-08-27 | Completed Q10 in root `74d5e46` and fluxCore `2db6088`: tightened the still-accurate 2.0.0 release blurb, removed and ignored the tracked local `AGENT_CONTEXT.md` while preserving its local copy, and refreshed the package README around the matching-clock, typed-parameter, trajectory-identity, and decisions/actions contracts. The affected copied example and public links were checked against the landed source stack. |
