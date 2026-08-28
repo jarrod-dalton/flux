@@ -1654,8 +1654,8 @@ should depend on its contents.
 
 ### S3 — Add grouped decision points as a bounded 2.1 extension
 
-**Status:** Approved as a bounded, staged v2.1 extension; each implementation gate still
-requires focused verification and review. This is justified by a real modeling gap—one
+**Status:** S3a and S3b are landed and verified; S3c trajectory identity is the active
+implementation gate. This is justified by a real modeling gap—one
 policy consultation sometimes needs to coordinate selections across several existing
 decision points—not by the desire to add a headline feature. Defer S3 if implementation
 expands into general workflows, rollback, joint action realization, or comprehensive action
@@ -1753,10 +1753,14 @@ for manually assembled schemas.
       simultaneous activation of the same leaf is an error before policy dispatch.
 - [x] Lock ambiguous-activation timing: detect overlap from raw fired triggers and declared
       members, then error before transition, Entity mutation, conditions, or policy calls.
-- [ ] Test direct-only, group-only, dual-use non-simultaneous, unreferenced `NULL` trigger,
+- [x] Test direct-only, group-only, dual-use non-simultaneous, unreferenced `NULL` trigger,
       and ambiguous simultaneous-activation cases.
 
 #### S3b — Policy consultation and pending-slot staging
+
+**Status:** Landed in fluxCore `f15f0bb`, with the explicit adapter acceptance matrix
+completed in test-only follow-up `0642b5f`. The Engine gate is complete; S3c remains
+separate.
 
 The grouped path calls one explicit policy method once with the grouped object and the
 eligible leaves in declared member order:
@@ -1868,7 +1872,7 @@ before the one commit so a warning promoted to an error also leaves every slot u
 - [x] Lock `DecisionPlan$metadata` as an optional named, opaque, audit-only list that is
       transient without logging, retained in raw grouped records when logging is enabled,
       and excluded from `trajectory_table()`.
-- [ ] Finalize `DecisionPlan` constructor validation messages and print behavior without
+- [x] Finalize `DecisionPlan` constructor validation messages and print behavior without
       assigning execution semantics to metadata.
 - [x] Lock pending outcomes: `NULL` preserves the slot; `keep` validly retains the earlier
       action; `replace` and `warn` select the new action; and `error` rejects the full plan.
@@ -1877,20 +1881,20 @@ before the one commit so a warning promoted to an error also leaves every slot u
       been promoted to errors.
 - [x] Emit at most one pending-replacement warning per accepted plan, summarizing every
       affected `warn`-mode member id.
-- [ ] Implement one-call consultation, condition evaluation, result validation, and a pure
+- [x] Implement one-call consultation, condition evaluation, result validation, and a pure
       candidate/preflight step before committing pending-slot changes.
-- [ ] Prove all-or-none staging for invalid plans, pending conflicts, and warnings promoted
+- [x] Prove all-or-none staging for invalid plans, pending conflicts, and warnings promoted
       to errors; prove `NULL`, `keep`, `replace`, and `warn` behavior explicitly.
 - [x] Lock mixed activation order: ordinary decision points first in their existing schema
       order, then groups in `decision_groups` order, with no cross-activation transaction.
 - [x] Lock eligibility phasing: after one valid trigger transition, evaluate every activated
       ordinary/group member condition in canonical order before any policy dispatch.
-- [ ] Prove that disjoint activations remain independent and deterministic in their agreed
+- [x] Prove that disjoint activations remain independent and deterministic in their agreed
       schema order, without introducing a global transaction.
-- [ ] Prove conditions are evaluated exactly once in canonical order and that an earlier
+- [x] Prove conditions are evaluated exactly once in canonical order and that an earlier
       policy callback cannot alter a later activation's already-frozen eligibility.
-- [ ] Add same-seed stochastic-plan coverage under the Q7 RNG-ownership contract.
-- [ ] Test the explicit per-member adapter pattern, including declared-order calls, a valid
+- [x] Add same-seed stochastic-plan coverage under the Q7 RNG-ownership contract.
+- [x] Test the explicit per-member adapter pattern, including declared-order calls, a valid
       all-`NULL` plan, one invalid member result, and full-plan staging behavior.
 
 #### S3c — Trajectory and identity contract
@@ -2132,3 +2136,5 @@ being resolved by silent scope expansion.
 | 2026-08-27 | Landed the focused Tutorial 01 Q9 repair in root `62d869c`: the ordinary and parameter cohorts now render 8 and 24 runs, callbacks read direct `param_ctx$params` fields with field-level defaults, and the returned draw is visibly one non-nested `ParamContext`. A fatal fresh-environment knit and direct no-draw fallback probe passed. |
 | 2026-08-27 | Completed a five-tutorial fatal-render baseline against the current source stack after installing local fluxPrepare 2.0.0. The run exposed and corrected Tutorial 03's one stale Q2 column name (`action_taken` -> `selected_action`) and replaced Tutorial 04's version-sensitive `~50x` object-size claim with accurate qualified prose. The final five-tutorial render remains gated on stable S3a-S3c implementation. |
 | 2026-08-27 | Landed S3a in fluxCore `1c1c906`: exported bounded `GroupedDecisionPoint()` and `DecisionPlan()` declarations, retained the required positional `DecisionPoint()` trigger while allowing explicit `NULL` for referenced group-only leaves, stored groups separately in full schemas, and added shared defensive cross-reference validation without any Engine dispatch. Independent review found no S3b leakage; 290 focused assertions, 838 full-suite assertions, and a non-CRAN package check all completed without failures (package check: 0 errors, 0 warnings, 0 notes). |
+| 2026-08-27 | Landed S3b in fluxCore `f15f0bb`: raw activation overlap now fails before mutation; post-transition eligibility is frozen before policy dispatch; strict one-call grouped plans are validated and preflighted before one pending-store commit; and ordinary/group boundaries remain deterministic and independent. Independent review found no correctness blocker. The full suite passed 954 assertions and the non-CRAN package check completed with 0 errors, 0 warnings, and 0 notes after qualifying one internal namespace call. |
+| 2026-08-27 | Completed the S3b adapter acceptance matrix in test-only follow-up `0642b5f`: declared-order two-action staging, an intentional all-`NULL` plan, and an invalid member result are now explicit regressions. The focused file passed 120 assertions and the full Core suite passed 958, with only the existing intentional warning and four environment/legacy skips. |
