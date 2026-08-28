@@ -766,6 +766,7 @@ batch <- run_cohort(
 )
 
 head(batch$index)
+nrow(batch$index)
 ```
 
 `n_sims = 2` runs each entity twice with different random seeds, giving two stochastic replicates per courier. The `$index` records the entity id, sim id, and any summary statistics your `observe()` hook accumulated.
@@ -777,7 +778,7 @@ Real delivery fleets vary in ways beyond initial state: dispatch rates, battery 
 The mechanism has two parts:
 
 - **`sample_params(n)`**: a bundle hook that returns a list of `n` `ParamContext` objects, one per draw. Each `ParamContext` carries a `draw_id` and a `params` named list of concrete sampled values.
-- **`param_ctx` argument**: any bundle callback (`propose_events`, `transition`, `stop`, `observe`) can declare `param_ctx = NULL` as an optional argument. The engine injects the correct `ParamContext` for each draw; when no draw is active (e.g., a direct `Engine$run()` call) the argument is `NULL`, so callbacks fall back gracefully to default constants.
+- **`param_ctx` argument**: supported bundle callbacks such as `propose_events`, `transition`, and `stop` can declare `param_ctx = NULL`. The engine injects the correct `ParamContext` for each cohort draw. A direct `Engine$run()` also receives one typed context: its `params` field contains `bundle$params` when provided, or an empty list otherwise. Code should therefore check for the particular optional parameter it needs, rather than treating the whole context as optional.
 
 Construct a `ParamContext` manually to inspect its structure:
 
@@ -812,7 +813,8 @@ toy_bundle_pd <- list(
   sample_params = courier_sample_params,
 
   propose_events = function(entity, param_ctx = NULL) {
-    meanlog <- if (!is.null(param_ctx)) param_ctx$params$interval_meanlog else 0.2
+    meanlog <- param_ctx$params$interval_meanlog
+    if (is.null(meanlog)) meanlog <- 0.2
     list(dispatch = list(
       time_next  = entity$last_time + stats::rlnorm(1, meanlog = meanlog, sdlog = 0.4),
       event_type = "dispatch"
@@ -821,7 +823,8 @@ toy_bundle_pd <- list(
 
   transition = function(entity, event, param_ctx = NULL) {
     if (!identical(event$event_type, "dispatch")) return(list())
-    drain_log <- if (!is.null(param_ctx)) param_ctx$params$drain_meanlog else 2.3
+    drain_log <- param_ctx$params$drain_meanlog
+    if (is.null(drain_log)) drain_log <- 2.3
     list(
       payload_kg  = min(20, max(0, as.numeric(entity$current$payload_kg) +
                                     stats::rnorm(1, mean = 2, sd = 0.5))),
@@ -851,6 +854,7 @@ batch_pd <- run_cohort(
 )
 
 head(batch_pd$index, 12)
+nrow(batch_pd$index)
 ```
 
 Each of the 4 couriers now produces 6 rows (3 draws × 2 sims). Rows sharing the same `param_draw_id` were simulated under identical drawn parameters — the only variance within a draw is the stochastic replicate seed. Rows with different `param_draw_id` also differ in `interval_meanlog` and `drain_meanlog`, so systematic differences in event counts or stopping time across draws reflect genuine model-parameter uncertainty rather than random noise.
@@ -858,5 +862,10 @@ Each of the 4 couriers now produces 6 rows (3 draws × 2 sims). Rows sharing the
 The drawn `ParamContext` objects are also returned in `batch_pd$param_draws` for reproducibility — you can inspect, save, or replay any individual draw:
 
 ```{r}
-batch_pd$param_draws[[1]]
+first_draw <- batch_pd$param_draws[[1]]
+first_draw
+class(first_draw)
+class(first_draw$params)
 ```
+
+The draw itself is a `ParamContext`; its `params` field is the ordinary named list read directly by callbacks, not another nested context.

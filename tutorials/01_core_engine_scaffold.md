@@ -113,6 +113,8 @@ Bundles can also expose optional hooks (`init_entity`, `refresh_rules`, `event_c
 
 Below is the smallest interesting bundle: a single **event process** named `dispatch` that fires at lognormal-distributed intervals, adds a noisy parcel of payload, and drains the battery by a random amount (mean ~12%). It stops when battery falls below 10% and records schema-relevant fields after each event.
 
+The model declares a 20 kg payload capacity, so each payload-changing transition in this tutorial caps the updated value at 20 kg. The schema remains a safety check if other code attempts an out-of-range update.
+
 
 ``` r
 toy_bundle <- list(
@@ -128,8 +130,8 @@ toy_bundle <- list(
   transition = function(entity, event) {
     if (!identical(event$event_type, "dispatch")) return(list())
     list(
-      payload_kg  = max(0, as.numeric(entity$current$payload_kg) +
-                            stats::rnorm(1, mean = 2, sd = 0.5)),
+      payload_kg  = min(20, max(0, as.numeric(entity$current$payload_kg) +
+                                    stats::rnorm(1, mean = 2, sd = 0.5))),
       battery_pct = max(0, as.numeric(entity$current$battery_pct) -
                             stats::rlnorm(1, meanlog = 2.3, sdlog = 0.3))
     )
@@ -384,8 +386,8 @@ weather_aware_bundle <- list(
   transition = function(entity, event) {
     if (identical(event$event_type, "dispatch")) {
       return(list(
-        payload_kg  = max(0, as.numeric(entity$current$payload_kg) +
-                              stats::rnorm(1, mean = 2, sd = 0.5)),
+        payload_kg  = min(20, max(0, as.numeric(entity$current$payload_kg) +
+                                      stats::rnorm(1, mean = 2, sd = 0.5))),
         battery_pct = max(0, as.numeric(entity$current$battery_pct) -
                               stats::rlnorm(1, meanlog = 2.3, sdlog = 0.3))
       ))
@@ -784,33 +786,33 @@ cat("Battery after: ", tr1$state_after$battery_pct, "\n")
 tr_df <- trajectory_table(out_dp$trajectory_records,
                           vars = c("battery_pct", "deliveries_completed"))
 head(tr_df, 10)
-#>           t decision_point_id trigger_event action_taken condition_met
-#> 1  1.986102     post_dispatch      dispatch   stand_down            NA
-#> 2  2.919758     post_dispatch      dispatch   stand_down            NA
-#> 3  4.221382     post_dispatch      dispatch   stand_down            NA
-#> 4  6.200366     post_dispatch      dispatch   stand_down            NA
-#> 5  8.233018     post_dispatch      dispatch        surge            NA
-#> 6  8.922254     post_dispatch      dispatch        surge            NA
-#> 7  9.527006     post_dispatch      dispatch        surge            NA
-#> 8 10.263482     post_dispatch      dispatch        surge            NA
-#>   battery_pct_before battery_pct_after deliveries_completed_before
-#> 1          100.00000          93.03451                           0
-#> 2           93.03451          85.58015                           1
-#> 3           85.58015          75.94986                           2
-#> 4           75.94986          64.84819                           3
-#> 5           64.84819          53.85577                           4
-#> 6           53.85577          40.10300                           5
-#> 7           40.10300          20.06496                           6
-#> 8           20.06496           0.00000                           7
-#>   deliveries_completed_after
-#> 1                          1
-#> 2                          2
-#> 3                          3
-#> 4                          4
-#> 5                          5
-#> 6                          6
-#> 7                          7
-#> 8                          8
+#>   run_id entity_id         t decision_point_id trigger_event selected_action
+#> 1  run_1    entity  1.986102     post_dispatch      dispatch      stand_down
+#> 2  run_1    entity  2.919758     post_dispatch      dispatch      stand_down
+#> 3  run_1    entity  4.221382     post_dispatch      dispatch      stand_down
+#> 4  run_1    entity  6.200366     post_dispatch      dispatch      stand_down
+#> 5  run_1    entity  8.233018     post_dispatch      dispatch           surge
+#> 6  run_1    entity  8.922254     post_dispatch      dispatch           surge
+#> 7  run_1    entity  9.527006     post_dispatch      dispatch           surge
+#> 8  run_1    entity 10.263482     post_dispatch      dispatch           surge
+#>   condition_met battery_pct_before battery_pct_after
+#> 1            NA          100.00000          93.03451
+#> 2            NA           93.03451          85.58015
+#> 3            NA           85.58015          75.94986
+#> 4            NA           75.94986          64.84819
+#> 5            NA           64.84819          53.85577
+#> 6            NA           53.85577          40.10300
+#> 7            NA           40.10300          20.06496
+#> 8            NA           20.06496           0.00000
+#>   deliveries_completed_before deliveries_completed_after
+#> 1                           0                          1
+#> 2                           1                          2
+#> 3                           2                          3
+#> 4                           3                          4
+#> 5                           4                          5
+#> 6                           5                          6
+#> 7                           6                          7
+#> 8                           7                          8
 ```
 
 Notice the pattern: the policy switches to "surge" as the battery drops below
@@ -866,12 +868,17 @@ batch <- run_cohort(
   backend = "none",
   seed = 123
 )
-#> Error:
-#> ! Value for 'payload_kg' must be <= 20.
 
 head(batch$index)
-#> Error:
-#> ! object 'batch' not found
+#>   entity_id param_draw_id sim_id run_id
+#> 1       id1             1      1  run_1
+#> 2       id1             1      2  run_2
+#> 3       id2             1      1  run_3
+#> 4       id2             1      2  run_4
+#> 5       id3             1      1  run_5
+#> 6       id3             1      2  run_6
+nrow(batch$index)
+#> [1] 8
 ```
 
 `n_sims = 2` runs each entity twice with different random seeds, giving two stochastic replicates per courier. The `$index` records the entity id, sim id, and any summary statistics your `observe()` hook accumulated.
@@ -883,7 +890,7 @@ Real delivery fleets vary in ways beyond initial state: dispatch rates, battery 
 The mechanism has two parts:
 
 - **`sample_params(n)`**: a bundle hook that returns a list of `n` `ParamContext` objects, one per draw. Each `ParamContext` carries a `draw_id` and a `params` named list of concrete sampled values.
-- **`param_ctx` argument**: any bundle callback (`propose_events`, `transition`, `stop`, `observe`) can declare `param_ctx = NULL` as an optional argument. The engine injects the correct `ParamContext` for each draw; when no draw is active (e.g., a direct `Engine$run()` call) the argument is `NULL`, so callbacks fall back gracefully to default constants.
+- **`param_ctx` argument**: supported bundle callbacks such as `propose_events`, `transition`, and `stop` can declare `param_ctx = NULL`. The engine injects the correct `ParamContext` for each cohort draw. A direct `Engine$run()` also receives one typed context: its `params` field contains `bundle$params` when provided, or an empty list otherwise. Code should therefore check for the particular optional parameter it needs, rather than treating the whole context as optional.
 
 Construct a `ParamContext` manually to inspect its structure:
 
@@ -926,7 +933,8 @@ toy_bundle_pd <- list(
   sample_params = courier_sample_params,
 
   propose_events = function(entity, param_ctx = NULL) {
-    meanlog <- if (!is.null(param_ctx)) param_ctx$params$interval_meanlog else 0.2
+    meanlog <- param_ctx$params$interval_meanlog
+    if (is.null(meanlog)) meanlog <- 0.2
     list(dispatch = list(
       time_next  = entity$last_time + stats::rlnorm(1, meanlog = meanlog, sdlog = 0.4),
       event_type = "dispatch"
@@ -935,10 +943,11 @@ toy_bundle_pd <- list(
 
   transition = function(entity, event, param_ctx = NULL) {
     if (!identical(event$event_type, "dispatch")) return(list())
-    drain_log <- if (!is.null(param_ctx)) param_ctx$params$drain_meanlog else 2.3
+    drain_log <- param_ctx$params$drain_meanlog
+    if (is.null(drain_log)) drain_log <- 2.3
     list(
-      payload_kg  = max(0, as.numeric(entity$current$payload_kg) +
-                            stats::rnorm(1, mean = 2, sd = 0.5)),
+      payload_kg  = min(20, max(0, as.numeric(entity$current$payload_kg) +
+                                    stats::rnorm(1, mean = 2, sd = 0.5))),
       battery_pct = max(0, as.numeric(entity$current$battery_pct) -
                             stats::rlnorm(1, meanlog = drain_log, sdlog = 0.3))
     )
@@ -964,12 +973,23 @@ batch_pd <- run_cohort(
   backend = "none",
   seed = 123
 )
-#> Error in `stats::rlnorm()`:
-#> ! invalid arguments
 
 head(batch_pd$index, 12)
-#> Error:
-#> ! object 'batch_pd' not found
+#>    entity_id param_draw_id sim_id run_id
+#> 1        id1             1      1  run_1
+#> 2        id1             1      2  run_2
+#> 3        id1             2      1  run_3
+#> 4        id1             2      2  run_4
+#> 5        id1             3      1  run_5
+#> 6        id1             3      2  run_6
+#> 7        id2             1      1  run_7
+#> 8        id2             1      2  run_8
+#> 9        id2             2      1  run_9
+#> 10       id2             2      2 run_10
+#> 11       id2             3      1 run_11
+#> 12       id2             3      2 run_12
+nrow(batch_pd$index)
+#> [1] 24
 ```
 
 Each of the 4 couriers now produces 6 rows (3 draws × 2 sims). Rows sharing the same `param_draw_id` were simulated under identical drawn parameters — the only variance within a draw is the stochastic replicate seed. Rows with different `param_draw_id` also differ in `interval_meanlog` and `drain_meanlog`, so systematic differences in event counts or stopping time across draws reflect genuine model-parameter uncertainty rather than random noise.
@@ -978,7 +998,16 @@ The drawn `ParamContext` objects are also returned in `batch_pd$param_draws` for
 
 
 ``` r
-batch_pd$param_draws[[1]]
-#> Error:
-#> ! object 'batch_pd' not found
+first_draw <- batch_pd$param_draws[[1]]
+first_draw
+#> <ParamContext>
+#>   draw_id   : 1
+#>   provenance: (none)
+#>   params    : 2 field(s)
+class(first_draw)
+#> [1] "ParamContext"
+class(first_draw$params)
+#> [1] "list"
 ```
+
+The draw itself is a `ParamContext`; its `params` field is the ordinary named list read directly by callbacks, not another nested context.
