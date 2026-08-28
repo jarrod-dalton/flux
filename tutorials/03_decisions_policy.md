@@ -1,810 +1,998 @@
-In [Tutorial 02](02_cohort_forecast.md), every courier followed the same
-mechanistic process: dispatches arrived, deliveries completed, batteries
-drained — all without anyone making choices. Real systems involve **decisions**: a dispatcher choosing whether to
-accept or decline an assignment, a routing algorithm picking surge vs normal
-mode, a fleet manager pulling a low-battery vehicle off the road.
+In [Tutorial 02](02_cohort_forecast.md), couriers followed the same operational
+rules: dispatch offers arrived, deliveries completed, and batteries drained.
+Here we add choices. A dispatcher may accept or decline an offer, while a
+safety rule may reduce a low-battery courier's load.
 
-This tutorial introduces **decision points** and **policies** — the mechanism
-by which choices are injected into the simulation timeline. A **policy** is a
-function that looks at the courier's current state and proposes an action: accept
-the dispatch (take the payload, spend battery to deliver it) or decline (stay
-idle, conserve battery for later). Accepting means more deliveries completed
-but faster battery depletion; declining preserves range at the cost of missed
-work. The question we will answer: *does a simple battery-conservation policy
-improve the delivery-vs-battery trade-off compared to always accepting?*
+In flux, a **decision point** says when a policy may be consulted. The policy
+may select an **action**, which enters the same irregular-time event calendar as
+the model's other events. The action does not change the courier immediately.
 
-By the end you will be able to:
+By the end of this tutorial, you will be able to:
 
-- declare a decision point on the delivery schema,
-- write a policy function that proposes actions,
-- compare outcomes under two different policies with identical seeds,
-- inspect trajectory records to see exactly why each decision was made,
-- view the distribution of counterfactual outcomes across many runs.
+- declare an ordinary decision point and write its policy;
+- distinguish policy selection, pending staging, event realization, and the
+  action handler's state effect;
+- control repeated offers when an earlier action is still pending;
+- use two independent decisions that share a trigger; and
+- coordinate several eligible decisions in one grouped policy consultation.
 
-## Setup
+## Setup: a controlled extension of the delivery model
 
 
 ``` r
 library(fluxCore)
 source("tutorials/model/urban_delivery.R")
-set.seed(2026)
 ```
 
-## The decision: accept or decline a dispatch
-
-Recall the model from Tutorial 01. The simulation runs in discrete steps:
-each step, competing event streams (dispatch arrivals, delivery completions,
-shift end) each propose a next-event time; the engine picks the soonest one,
-advances the clock, and calls `transition()` to update state variables.
-Among those events is `dispatch_check` — the moment a new delivery assignment
-arrives and the courier is offered work.
-
-In the base model, `dispatch_check` always results in the courier accepting:
-the transition assigns a route, adds payload, and deducts battery. But what if
-a fleet management system could **decline** an assignment — for example, when
-battery is too low to safely complete the delivery?
-
-This is a natural decision point. Let's formalize it.
-
-## Declaring a decision point
-
-A **decision point** is a named checkpoint in the event timeline where the
-simulation pauses to ask: *should something intervene here?* When a decision
-point fires, the engine calls your policy function and gives it a chance to
-propose an action — for example, "decline this dispatch" or "switch to surge
-mode". If no policy is attached, the simulation proceeds as if the checkpoint
-were not there.
-
-Decision points are declared on the schema, not buried in transition logic.
-This keeps the interface explicit and auditable.
-
-Here is the full event cycle. The top band is everything the engine does
-*before* the state changes, the middle band everything it does *after* — a
-distinction that matters, because a decision point's `trigger` is checked on
-the raw event before the transition, while its `condition` is checked on the
-updated entity afterwards:
-
-```mermaid
-flowchart TB
-    START(["propose_events()<br/><i>last_event = NULL</i>"])
-
-    subgraph P1["1 - realize the event, before state changes"]
-        direction LR
-        PICK["<b>pick soonest event</b><br/>proposals + action_proposals"]
-        TRIG["which decision points<br/>does this event trigger?"]
-        KIND{"policy action with<br/>a handler?"}
-        AH["action_handler()"]
-        TR["transition()"]
-        UPD["<b>entity updated</b>"]
-        PICK --> TRIG --> KIND
-        KIND -- yes --> AH --> UPD
-        KIND -- no --> TR --> UPD
-    end
-
-    subgraph P2["2 - consult the policy, after state changes"]
-        direction LR
-        COND{"condition<br/>met?"}
-        POL["policy() to ActionEvent<br/><i>joins action_proposals</i>"]
-        AUD["audit record<br/><i>if audit = TRUE</i>"]
-        OBS["trajectory records<br/>observe()"]
-        COND -- yes --> POL --> OBS
-        COND -- no --> AUD --> OBS
-    end
-
-    subgraph P3["3 - close the cycle"]
-        direction LR
-        FIN{"stop, max_time<br/>or max_events?"}
-        RET["engine retires the<br/>realized action"]
-        RFR["refresh_rules() then<br/>propose_events(last_event)<br/><i>rewrites proposals only</i>"]
-        FIN -- no --> RET --> RFR
-    end
-
-    START --> PICK
-    UPD --> COND
-    OBS --> FIN
-    FIN -- yes --> DONE(["<b>run ends</b> - stopped_by"])
-    RFR --> PICK
-```
-
-Two details in that diagram are worth holding onto. The engine keeps model
-proposals and policy actions in **separate stores**: `refresh_rules()` and
-`propose_events()` only ever rewrite your processes, so an action you scheduled
-for the future is never disturbed by a refresh. And the engine **retires a
-realized action itself** — that is not your job, and there is no name you could
-use to do it.
-
-Here is how we declare the dispatch decision point. Because we want the
-engine to handle `accept` and `decline` events directly — without writing a
-custom transition function — we attach **action handlers** to the decision
-point itself. Each handler is a function that receives the entity and event
-and returns state updates:
+The stochastic delivery model is useful for forecasting, but fixed event times
+make a new lifecycle easier to see. The helper below starts from
+`delivery_bundle()` and changes only what this tutorial needs: dispatch offers
+arrive at supplied times, each offer either opens or does not open an assignment,
+and shift end remains a model event. The courier schema and delivery vocabulary
+are unchanged.
 
 
 ``` r
-dp_dispatch <- DecisionPoint(
-  id              = "dispatch_decision",
-  trigger         = "dispatch_check",
-  allowed_actions = c("accept", "decline"),
-  on_pending_action = "replace", # A newer dispatch supersedes an unhandled one.
-  action_handlers = list(
-    accept = function(entity, event) {
-      # Courier commits to the delivery: pay the battery cost now.
-      battery_now <- as.numeric(entity$current$battery_pct)
-      if (!is.finite(battery_now)) battery_now <- 100
-      list(battery_pct = max(0, battery_now - rexp(1, 1/2.5)))
-    },
-    decline = function(entity, event) {
-      # Courier passes: undo the route/payload assignment, no battery cost.
-      list(dispatch_mode = "idle", payload_kg = 0)
+controlled_delivery_bundle <- function(offer_times = 1,
+                                       offer_open = TRUE,
+                                       offered_payload_kg = 4,
+                                       shift_end = 8) {
+  bundle <- delivery_bundle(list(shift_length_hours = shift_end))
+  offer_times <- sort(as.numeric(offer_times))
+
+  bundle$propose_events <- function(entity, param_ctx = NULL,
+                                    process_ids = NULL,
+                                    current_proposals = NULL) {
+    n_seen <- sum(entity$events$event_type == "dispatch_check", na.rm = TRUE)
+    next_offer <- n_seen + 1L
+    out <- list()
+
+    if (next_offer <= length(offer_times) &&
+        offer_times[[next_offer]] > entity$last_time) {
+      out$dispatch <- list(
+        time_next = offer_times[[next_offer]],
+        event_type = "dispatch_check"
+      )
     }
-  )
-)
-```
 
-The fields:
+    out$end_shift <- list(
+      time_next = shift_end,
+      event_type = "end_shift"
+    )
 
-- **`trigger`**: which event(s) cause this decision point to fire. Here,
-  `"dispatch_check"` — the checkpoint activates every time a dispatch arrives.
-
-- **`allowed_actions`**: the set of actions the policy may propose.
-  Anything outside this set is rejected by the engine.
-
-- **`action_handlers`**: a named list mapping each action type to a function
-  `function(entity, event) → list(state_updates)` or `NULL`. When the engine
-  picks up an ActionEvent whose type has a handler here, it calls the handler
-  directly — no custom `transition()` or bundle wrapper needed. The handler's
-  return value is applied as state updates just like a transition would.
-
-- **`condition`** (not used yet): an optional function `function(entity)`
-  evaluated *after* the trigger transition. If it returns `FALSE`, the policy
-  is skipped. We will introduce it later.
-
-- **`audit`** (default `FALSE`): when `TRUE`, the engine logs a record even
-  for cycles where `condition` suppressed the policy call.
-
-Now assemble a full schema object (variables + time_spec + decision points):
-
-
-``` r
-schema_with_dp <- set_schema(
-  vars            = delivery_schema(),
-  time_spec       = time_spec(unit = "hours"),
-  decision_points = list(dp_dispatch)
-)
-```
-
-## Writing policies
-
-A **policy** is a plain R function that receives the firing decision point and
-the current courier state, and returns an `ActionEvent` proposing what should
-happen next — or `NULL` for "no intervention."
-
-### Policy A: always accept
-
-The simplest possible policy — accept every dispatch regardless of state.
-This is equivalent to having no policy at all, and serves as a baseline.
-
-
-``` r
-policy_always_accept <- function(decision_point, entity) {
-  ActionEvent(
-    action_type = "accept",
-    time_next   = entity$last_time + 0.01
-  )
-}
-```
-
-### Policy B: battery threshold
-
-Decline if battery has dropped below 60%. The idea: a courier running low on
-battery should stop taking new assignments and coast to shift end rather than
-risk stranding mid-delivery.
-
-
-``` r
-policy_battery_threshold <- function(decision_point, entity) {
-  battery <- as.numeric(entity$current$battery_pct)
-
-  action <- if (!is.null(battery) && battery < 60) "decline" else "accept"
-
-  ActionEvent(
-    action_type = action,
-    time_next   = entity$last_time + 0.01,
-    metadata    = list(battery_at_decision = battery)
-  )
-}
-```
-
-## Tweaking the base model for policy control
-
-In the base model (`delivery_bundle()`), `dispatch_check` assigns a route,
-adds payload, **and** deducts battery — all in one step. That made sense when
-every dispatch was automatically accepted, but now that a policy can decline,
-we need to separate "an offer arrived" from "the courier committed." Otherwise
-the battery cost is paid regardless of the policy's decision, and the
-threshold policy has no real effect.
-
-The fix is a thin wrapper that removes `battery_pct` from the dispatch_check
-transition. Battery cost is moved into the `accept` action handler above —
-so it is only paid when the policy actually commits the courier to the
-delivery. The `decline` handler simply resets mode and payload; no state
-needs to be "refunded" because battery was never charged.
-
-
-``` r
-delivery_bundle_for_policy <- function(params = list()) {
-  base <- delivery_bundle(params)
-  base_transition <- base$transition
-
-  base$transition <- function(entity, event, param_ctx = NULL) {
-    result <- base_transition(entity, event, param_ctx)
-    # Strip battery cost from dispatch_check — the policy decides whether to pay it.
-    if (identical(event$event_type, "dispatch_check")) {
-      result$battery_pct <- NULL
-    }
-    result
+    if (is.null(process_ids)) return(out)
+    out[intersect(as.character(process_ids), names(out))]
   }
 
-  base
-}
-```
+  bundle$transition <- function(entity, event, param_ctx = NULL) {
+    if (identical(event$event_type, "dispatch_check")) {
+      if (isTRUE(offer_open)) {
+        return(list(
+          dispatch_mode = "assigned",
+          payload_kg = offered_payload_kg
+        ))
+      }
+      return(list(dispatch_mode = "idle", payload_kg = 0))
+    }
 
-This leaves the shared `urban_delivery.R` file untouched (other tutorials
-still use the original behavior where every dispatch drains battery), and
-makes the policy's accept/decline choice the sole determinant of dispatch
-battery cost in this tutorial.
+    if (identical(event$event_type, "end_shift")) {
+      return(list(dispatch_mode = "idle"))
+    }
 
-## Assembling with `load_model()`
+    NULL
+  }
 
-`load_model()` validates that the schema, bundle, policy, and trajectory
-configuration are mutually consistent before any run begins.
+  bundle$stop <- function(entity, event, param_ctx = NULL) {
+    identical(event$event_type, "end_shift")
+  }
 
-Reproducibility is controlled through a `RuntimeContext`. Passing a `seed`
-ensures that every stochastic draw during the run starts from a known state.
-Using the same seed across both models makes the comparison meaningful: every
-difference in outcome is caused by the policy, not by random chance.
-
-
-``` r
-model_accept <- load_model(
-  schema     = schema_with_dp,
-  bundle     = delivery_bundle_for_policy(),
-  policy     = policy_always_accept,
-  trajectory = list(detail = "summary"),
-  runtime    = RuntimeContext(seed = 500)
-)
-
-model_threshold <- load_model(
-  schema     = schema_with_dp,
-  bundle     = delivery_bundle_for_policy(),
-  policy     = policy_battery_threshold,
-  trajectory = list(detail = "summary"),
-  runtime    = RuntimeContext(seed = 500)
-)
-```
-
-## Running both policies from the same seed
-
-The power of the decision-point architecture: same courier, same seed, same
-stochastic draws — but different policies yield different outcomes. We create
-two identical couriers (same starting state) and run each through its
-respective model.
-
-
-``` r
-courier <- Entity$new(
-  id          = "courier_A",
-  init        = list(
-    battery_pct   = 80,
-    route_zone    = "urban",
-    payload_kg    = 0,
-    dispatch_mode = "idle"
-  ),
-  schema      = delivery_schema(),
-  entity_type = "courier",
-  time0       = 0
-)
-
-# Deep copy so both runs start from identical state
-courier2 <- courier$clone(deep = TRUE)
-
-out_accept    <- model_accept$run(courier,  max_events = 500, return_observations = TRUE)
-out_threshold <- model_threshold$run(courier2, max_events = 500, return_observations = TRUE)
-```
-
-## Comparing outcomes
-
-Let's look at the headline numbers: how many deliveries did each courier
-complete, and how much battery was left at the end of the shift?
-
-
-``` r
-# Count deliveries completed under each policy
-count_deliveries <- function(out) {
-  sum(out$events$event_type == "delivery_completed", na.rm = TRUE)
+  bundle
 }
 
-cat("Always-accept policy:\n")
-#> Always-accept policy:
-cat("  Deliveries completed:", count_deliveries(out_accept), "\n")
-#>   Deliveries completed: 6
-cat("  Final battery:       ", round(out_accept$entity$current$battery_pct, 1), "%\n\n")
-#>   Final battery:        26.7 %
+fresh_courier <- function(id = "courier_A", battery_pct = 80) {
+  Entity$new(
+    id = id,
+    init = list(
+      battery_pct = battery_pct,
+      route_zone = "urban",
+      payload_kg = 0,
+      dispatch_mode = "idle"
+    ),
+    schema = delivery_schema(),
+    entity_type = "courier",
+    time0 = 0
+  )
+}
 
-cat("Battery-threshold policy:\n")
-#> Battery-threshold policy:
-cat("  Deliveries completed:", count_deliveries(out_threshold), "\n")
-#>   Deliveries completed: 4
-cat("  Final battery:       ", round(out_threshold$entity$current$battery_pct, 1), "%\n")
-#>   Final battery:        48 %
+dispatch_handlers <- list(
+  confirm_dispatch = function(entity, event) {
+    list(dispatch_mode = "in_transit")
+  },
+  decline_dispatch = function(entity, event) {
+    list(dispatch_mode = "idle", payload_kg = 0)
+  }
+)
 ```
 
-The always-accept courier takes every dispatch and drains the battery more
-aggressively — potentially completing more deliveries but at higher risk of
-hitting critical battery levels. The threshold courier conserves energy by
-declining late-shift dispatches when battery is low.
+These are tutorial-local controls, not a second delivery model. Later you can
+replace fixed offer times with the stochastic proposals from
+`delivery_bundle()` without changing the decision contracts.
 
-## Inspecting trajectory records
+## One dispatch decision, from selection to effect
 
-Every time a decision point fires, the engine records what happened in a
-`TrajectoryRecord`. Think of it as the simulation's decision log: it captures
-the courier's state at the moment of the decision, what the policy proposed,
-and what the state looked like afterward. This is what allows you to go back
-after a run and ask *why* a particular decision was made.
+Suppose an offer arrives at hour 1. The transition marks the offer as assigned
+and records its payload. At that checkpoint, the policy selects a decline action
+for hour 1.5.
 
 
 ``` r
-# How many decisions were made?
-cat("Decisions (accept policy):   ", length(out_accept$trajectory_records), "\n")
-#> Decisions (accept policy):    6
-cat("Decisions (threshold policy):", length(out_threshold$trajectory_records), "\n")
-#> Decisions (threshold policy): 9
+dispatch_response_dp <- DecisionPoint(
+  id = "dispatch_response",
+  trigger = "dispatch_check",
+  allowed_actions = c("confirm_dispatch", "decline_dispatch"),
+  action_handlers = dispatch_handlers,
+  on_pending_action = "replace",
+  label = "Respond to an open delivery offer"
+)
+
+dispatch_schema <- set_schema(
+  vars = delivery_schema(),
+  time_spec = time_spec(unit = "hours"),
+  decision_points = list(dispatch_response_dp)
+)
+
+decline_policy <- function(decision_point, entity) {
+  ActionEvent(
+    action_type = "decline_dispatch",
+    time_next = entity$last_time + 0.5,
+    metadata = list(reason = "tutorial demonstration")
+  )
+}
+
+dispatch_model <- load_model(
+  schema = dispatch_schema,
+  bundle = controlled_delivery_bundle(offer_times = 1),
+  policy = decline_policy,
+  trajectory = list(detail = "summary")
+)
 ```
 
-Inspect a single record to see the structure:
+First stop immediately after the offer event. This lets us see the selected
+future action before it has happened.
 
 
 ``` r
-tr <- out_threshold$trajectory_records[[1]]
+after_offer <- dispatch_model$run(
+  fresh_courier("courier_after_offer"),
+  max_events = 1
+)
+
+selected <- after_offer$trajectory_records[[1]]$selected_action
+
 data.frame(
-  Field = c("Time", "Decision point", "Action proposed",
-            "Battery before", "Battery after"),
-  Value = c(round(tr$t, 3), tr$decision_point_id,
-            tr$selected_action$action_type,
-            tr$state_before$battery_pct, tr$state_after$battery_pct)
+  offer_time = after_offer$trajectory_records[[1]]$t,
+  state_after_offer = after_offer$entity$current$dispatch_mode,
+  selected_action = selected$action_type,
+  selected_for_time = selected$time_next,
+  action_already_in_history = selected$action_type %in%
+    after_offer$events$event_type
 ) |> kable()
 ```
 
 
 
-|Field           |Value             |
-|:---------------|:-----------------|
-|Time            |0.363             |
-|Decision point  |dispatch_decision |
-|Action proposed |accept            |
-|Battery before  |80                |
-|Battery after   |80                |
+| offer_time|state_after_offer |selected_action  | selected_for_time|action_already_in_history |
+|----------:|:-----------------|:----------------|-----------------:|:-------------------------|
+|          1|assigned          |decline_dispatch |               1.5|FALSE                     |
 
 
 
-`state_before` and `state_after` bracket the *trigger event* (`dispatch_check`).
-Because we stripped battery cost from that transition, `battery_pct` will be
-the same in both snapshots — the battery change happens later, when the
-`accept` action handler fires. What *does* change between before and after is
-`dispatch_mode` (`idle` → `assigned`) and `payload_kg` (0 → new payload),
-since those are still set by the trigger.
+The policy has **selected** `decline_dispatch`. Core has validated and
+**staged** it in the decision point's pending slot, where it can compete with
+future model events. It is not yet in event history because selection is not
+realization.
 
-`trajectory_table()` collects all records into a data frame, with one row per
-decision and columns for time, state variables, and the action taken. Look for
-the moment the policy starts declining — that's where the battery crosses 60%
-and the courier switches from accepting everything to coasting to end of shift.
+Now allow one more event to occur.
 
 
 ``` r
-tr_df <- trajectory_table(out_threshold$trajectory_records,
-                          vars = c("battery_pct", "dispatch_mode"))
-head(tr_df, 10) |> kable(digits = 2)
+after_action <- dispatch_model$run(
+  fresh_courier("courier_after_action"),
+  max_events = 2,
+  return_observations = TRUE
+)
+
+after_action$observations |>
+  select(time, event_type, dispatch_mode, payload_kg) |>
+  kable()
 ```
 
 
 
-|run_id |entity_id |    t|decision_point_id |trigger_event  |selected_action |condition_met | battery_pct_before| battery_pct_after|dispatch_mode_before |dispatch_mode_after |
-|:------|:---------|----:|:-----------------|:--------------|:---------------|:-------------|------------------:|-----------------:|:--------------------|:-------------------|
-|run_1  |courier_A | 0.36|dispatch_decision |dispatch_check |accept          |NA            |              80.00|             80.00|idle                 |assigned            |
-|run_1  |courier_A | 1.70|dispatch_decision |dispatch_check |accept          |NA            |              63.33|             63.33|in_transit           |assigned            |
-|run_1  |courier_A | 2.95|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|in_transit           |assigned            |
-|run_1  |courier_A | 4.71|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|idle                 |assigned            |
-|run_1  |courier_A | 5.53|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|idle                 |assigned            |
-|run_1  |courier_A | 5.90|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|idle                 |assigned            |
-|run_1  |courier_A | 6.29|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|idle                 |assigned            |
-|run_1  |courier_A | 6.49|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|idle                 |assigned            |
-|run_1  |courier_A | 6.79|dispatch_decision |dispatch_check |decline         |NA            |              47.98|             47.98|idle                 |assigned            |
+| time|event_type       |dispatch_mode | payload_kg|
+|----:|:----------------|:-------------|----------:|
+|  1.0|dispatch_check   |assigned      |          4|
+|  1.5|decline_dispatch |idle          |          0|
 
 
 
-## Using `condition` to restrict when the policy runs
+The four ideas are distinct:
 
-In `policy_battery_threshold` above, the battery check lives inside the
-policy function itself. That’s fine for simple cases, but it conflates two
-concerns: *when* to intervene and *what* to do. If you always want to decline
-when battery is critically low — regardless of which policy is plugged in —
-you can move the guard out of the policy and onto the decision point.
+1. At hour 1, the policy **selects** `decline_dispatch`.
+2. Core **stages** that future action in an engine-owned pending slot.
+3. At hour 1.5, it wins timeline arbitration and is **realized** as an event.
+4. Its handler takes **effect**, returning the courier to `idle` with no
+   payload.
 
-The `condition` parameter accepts a function `function(entity)` that is
-evaluated after the transition (so it sees current state). If it returns
-`FALSE`, the policy is never called for that cycle.
-
-Here we set a stricter threshold (25%) as a hard rule on the decision point.
-The policy itself becomes trivial — it always proposes "decline" because it
-only runs when the condition has already determined that intervention is
-warranted:
+The trajectory row describes the decision at hour 1. Its `state_before` and
+`state_after` bracket the triggering `dispatch_check` transition; they do not
+bracket the later action handler.
 
 
 ``` r
-dp_dispatch_cond <- DecisionPoint(
-  id              = "dispatch_decision",
-  trigger         = "dispatch_check",
-  condition       = function(entity) entity$current$battery_pct < 25,
-  allowed_actions = c("decline"),
+trajectory_table(
+  after_offer$trajectory_records,
+  vars = c("dispatch_mode", "payload_kg")
+) |> kable()
+```
+
+
+
+|run_id |entity_id           |  t|decision_point_id |grouped_decision_point_id |group_activation_id |trigger_event  |selected_action  |condition_met |dispatch_mode_before |dispatch_mode_after | payload_kg_before| payload_kg_after|
+|:------|:-------------------|--:|:-----------------|:-------------------------|:-------------------|:--------------|:----------------|:-------------|:--------------------|:-------------------|-----------------:|----------------:|
+|run_1  |courier_after_offer |  1|dispatch_response |NA                        |NA                  |dispatch_check |decline_dispatch |NA            |idle                 |assigned            |                 0|                4|
+
+
+
+`selected_action` is therefore the policy's choice, not a promise that the
+choice was retained or realized. Event history is the authoritative record of
+what actually occurred. In this controlled one-decision example, the matching
+action at hour 1.5 is unambiguous; more elaborate models may need richer
+application-level identifiers for exact lineage.
+
+## Conditions decide whether policy is consulted
+
+A trigger answers “did an offer event occur?” A `condition` answers a separate
+question using post-transition state: “does this courier require this decision
+now?” Here the policy is consulted only when battery is below 25%.
+
+
+``` r
+critical_battery_dp <- DecisionPoint(
+  id = "critical_dispatch_response",
+  trigger = "dispatch_check",
+  condition = function(entity) entity$current$battery_pct < 25,
+  allowed_actions = "decline_dispatch",
   action_handlers = list(
-    decline = function(entity, event) {
-      list(dispatch_mode = "idle", payload_kg = 0)
-    }
+    decline_dispatch = dispatch_handlers$decline_dispatch
   ),
-  audit           = TRUE,
-  label           = "Decline dispatch when battery is critically low; log all visits"
+  audit = TRUE,
+  on_pending_action = "replace"
 )
 
-schema_cond <- set_schema(
-  vars            = delivery_schema(),
-  time_spec       = time_spec(unit = "hours"),
-  decision_points = list(dp_dispatch_cond)
+critical_schema <- set_schema(
+  vars = delivery_schema(),
+  time_spec = time_spec(unit = "hours"),
+  decision_points = list(critical_battery_dp)
 )
 
-# Policy is now unconditional: the condition handles the filtering,
-# so every time this policy is called, the answer is always "decline".
-policy_decline_only <- function(decision_point, entity) {
-  ActionEvent(
-    action_type = "decline",
-    time_next   = entity$last_time + 0.01
-  )
+critical_policy <- function(decision_point, entity) {
+  ActionEvent("decline_dispatch", entity$last_time + 0.5)
 }
 
-model_cond <- load_model(
-  schema     = schema_cond,
-  bundle     = delivery_bundle_for_policy(),
-  policy     = policy_decline_only,
-  trajectory = list(detail = "summary"),
-  runtime    = RuntimeContext(seed = 99)
-)
-```
-
-Also, `audit = TRUE` is introduced here. Normally, when `condition` returns
-`FALSE` — meaning the battery is still healthy — the checkpoint fires and is
-immediately skipped with no record kept. With `audit = TRUE`, a record is
-written for *every* `dispatch_check` visit, whether or not the condition was
-met. Records where the policy was suppressed carry `condition_met = FALSE`
-and `selected_action = NULL`. This gives you a full picture of when couriers
-were and were not at risk.
-
-Run on the same courier with the same seed:
-
-
-``` r
-courier_cond <- Entity$new(
-  id          = "courier_A",
-  init        = list(battery_pct=80, route_zone="urban",
-                     payload_kg=0, dispatch_mode="idle"),
-  schema      = delivery_schema(),
-  entity_type = "courier",
-  time0       = 0
+critical_model <- load_model(
+  schema = critical_schema,
+  bundle = controlled_delivery_bundle(offer_times = 1),
+  policy = critical_policy,
+  trajectory = list(detail = "summary")
 )
 
-out_cond <- model_cond$run(courier_cond, max_events = 500,
-                           return_observations = TRUE)
-```
+condition_run <- function(id, battery) {
+  out <- critical_model$run(
+    fresh_courier(id, battery_pct = battery),
+    max_events = 1
+  )
+  tab <- trajectory_table(out$trajectory_records, vars = "battery_pct")
+  tab$starting_battery <- battery
+  tab
+}
 
-Because `audit = TRUE`, the trajectory records include every
-`dispatch_check` visit — not just the ones where the policy was called:
-
-
-``` r
-cond_flags <- sapply(out_cond$trajectory_records, function(tr) tr$condition_met)
-
-cat("Total DP visits (all dispatch_check events):",
-    length(out_cond$trajectory_records), "\n")
-#> Total DP visits (all dispatch_check events): 3
-cat("Condition met  (battery < 25, policy called):",
-    sum(cond_flags == TRUE, na.rm = TRUE), "\n")
-#> Condition met  (battery < 25, policy called): 0
-cat("Condition not met (battery >= 25, skipped):  ",
-    sum(cond_flags == FALSE, na.rm = TRUE), "\n")
-#> Condition not met (battery >= 25, skipped):   3
-```
-
-The `condition_met` field in each record tells you which visits had the policy
-consulted (`TRUE`) and which were logged but skipped (`FALSE`). The
-`trajectory_table()` helper brings this into a data frame alongside the state
-variables you care about:
-
-
-``` r
-tr_cond_df <- trajectory_table(out_cond$trajectory_records,
-                               vars = c("battery_pct", "dispatch_mode"))
-head(tr_cond_df[, c("t", "condition_met", "selected_action",
-                    "battery_pct_before", "dispatch_mode_before")], 8) |>
-  kable(digits = 2)
+bind_rows(
+  condition_run("healthy_battery", 80),
+  condition_run("low_battery", 15)
+) |>
+  select(entity_id, starting_battery, condition_met, selected_action) |>
+  kable()
 ```
 
 
 
-|    t|condition_met |selected_action | battery_pct_before|dispatch_mode_before |
-|----:|:-------------|:---------------|------------------:|:--------------------|
-| 3.49|FALSE         |NA              |              80.00|idle                 |
-| 5.69|FALSE         |NA              |              65.72|in_transit           |
-| 6.18|FALSE         |NA              |              62.81|in_transit           |
+|entity_id       | starting_battery|condition_met |selected_action  |
+|:---------------|----------------:|:-------------|:----------------|
+|healthy_battery |               80|FALSE         |NA               |
+|low_battery     |               15|TRUE          |decline_dispatch |
 
 
 
-Rows with `condition_met = FALSE` are the visits where battery was still above
-25% and no action was needed. Rows with `condition_met = TRUE` are the ones
-where the policy ran and proposed "decline".
+With `audit = TRUE`, a vetoed visit still produces a trajectory row with
+`condition_met = FALSE` and no selected action. Without audit, the healthy
+visit would produce no decision row. An absent condition is simply treated as
+eligible whenever the trigger fires.
 
-The two approaches — state check in the policy function vs. `condition` on the
-`DecisionPoint` — produce identical behavioral outcomes. Use `condition` when
-the guard is always the same regardless of policy, or when you want the
-audit trail to capture every checkpoint visit.
+## Repeated offers while an action is pending
 
-## Multiple decision points per event cycle
+Pending actions live separately from model proposals. A refresh can replace
+the model's next dispatch proposal without erasing a policy action that is
+still waiting.
 
-A schema can carry more than one decision point attached to the same trigger.
-Each fires **independently**: the engine checks the condition (if any) and
-calls the policy separately for each active checkpoint in the same event step.
+This matters when two offers arrive at hours 1 and 2, while each policy call
+selects a decline three hours later. The first and second selections are for
+hours 4 and 5. A decision point can hold only one pending action, so
+`on_pending_action` declares what the second selection means.
 
-Each decision point holds **at most one pending action** at a time, in its own
-slot. So when two checkpoints both propose, you get two pending actions, not a
-queue belonging to one of them. Both are then arbitrated against every other
-proposal on the timeline, and both eventually happen — the earlier `time_next`
-simply happens first. Neither is discarded.
-
-A common pattern is a tiered response: one checkpoint handles the routine
-accept/decline decision, and a second handles an emergency override when the
-battery reaches a critical threshold. Giving the override a slightly smaller
-`time_next` offset schedules it ahead of the routine action:
+`warn` is the default mode. The examples spell out every mode so their intent
+is visible in the code.
 
 
 ``` r
-dp_standard <- DecisionPoint(
-  id              = "dispatch_accept",
-  trigger         = "dispatch_check",
-  condition       = function(entity) entity$current$battery_pct >= 10,
-  allowed_actions = c("accept", "decline"),
-  action_handlers = list(
-    accept = function(entity, event) {
-      battery_now <- as.numeric(entity$current$battery_pct)
-      if (!is.finite(battery_now)) battery_now <- 100
-      list(battery_pct = max(0, battery_now - rexp(1, 1/2.5)))
-    },
-    decline = function(entity, event) list(dispatch_mode = "idle", payload_kg = 0)
-  ),
-  label           = "Routine accept/decline decision"
-)
+run_pending_mode <- function(mode) {
+  selected_times <- numeric()
+  warnings_seen <- character()
+  run_error <- NULL
 
-dp_critical <- DecisionPoint(
-  id              = "battery_critical",
-  trigger         = "dispatch_check",
-  condition       = function(entity) entity$current$battery_pct < 10,
-  allowed_actions = c("decline"),
-  action_handlers = list(
-    decline = function(entity, event) list(dispatch_mode = "idle", payload_kg = 0)
-  ),
-  audit           = TRUE,
-  label           = "Emergency override: battery critically low"
-)
+  dp <- DecisionPoint(
+    id = "dispatch_response",
+    trigger = "dispatch_check",
+    allowed_actions = "decline_dispatch",
+    action_handlers = list(
+      decline_dispatch = dispatch_handlers$decline_dispatch
+    ),
+    on_pending_action = mode
+  )
 
-schema_two_dps <- set_schema(
-  vars            = delivery_schema(),
-  time_spec       = time_spec(unit = "hours"),
-  decision_points = list(dp_standard, dp_critical)
-)
-```
+  schema <- set_schema(
+    vars = delivery_schema(),
+    time_spec = time_spec(unit = "hours"),
+    decision_points = list(dp)
+  )
 
-Notice the `condition` on each checkpoint. They are deliberately complementary:
-`dp_standard` stands down below 10% battery, exactly where `dp_critical` takes
-over. This matters more than it might appear.
-
-If both checkpoints were active at once, **both** would propose, and both
-actions would be realized — the emergency `decline` at `+ 0.001`, then the
-routine `accept` at `+ 0.01`, which would quietly undo the override a fraction
-of an hour later. Scheduling one action earlier than another does not cancel
-the later one. It only orders them.
-
-So when two checkpoints represent genuinely alternative responses, make them
-mutually exclusive with `condition`. Reach for distinct `time_next` offsets
-only when you want actions to *sequence*, not when you want one to *win*.
-
-
-``` r
-policy_two_dps <- function(decision_point, entity) {
-  battery <- as.numeric(entity$current$battery_pct)
-
-  if (decision_point$id == "battery_critical") {
-    return(ActionEvent(
-      action_type = "decline",
-      time_next   = entity$last_time + 0.001,
-      metadata    = list(reason = "battery_critical")
-    ))
+  policy <- function(decision_point, entity) {
+    action_time <- entity$last_time + 3
+    selected_times <<- c(selected_times, action_time)
+    ActionEvent("decline_dispatch", action_time)
   }
 
-  # Routine policy: accept unless battery < 25.
-  action <- if (!is.null(battery) && battery < 25) "decline" else "accept"
-  ActionEvent(
-    action_type = action,
-    time_next   = entity$last_time + 0.01
+  model <- load_model(
+    schema = schema,
+    bundle = controlled_delivery_bundle(offer_times = c(1, 2)),
+    policy = policy,
+    trajectory = list(detail = "summary")
+  )
+
+  courier <- fresh_courier(paste0("courier_", mode))
+  out <- tryCatch(
+    withCallingHandlers(
+      model$run(courier, max_events = 10),
+      warning = function(w) {
+        warnings_seen <<- c(warnings_seen, conditionMessage(w))
+        invokeRestart("muffleWarning")
+      }
+    ),
+    error = function(e) {
+      run_error <<- conditionMessage(e)
+      NULL
+    }
+  )
+
+  action_rows <- courier$events$event_type == "decline_dispatch"
+  realized_time <- if (any(action_rows)) {
+    courier$events$time[action_rows][[1]]
+  } else {
+    NA_real_
+  }
+
+  data.frame(
+    mode = mode,
+    selected_times = paste(selected_times, collapse = ", "),
+    realized_time = realized_time,
+    warnings = length(warnings_seen),
+    errored = !is.null(run_error),
+    last_committed_event = tail(courier$events$event_type, 1)
   )
 }
+
+bind_rows(lapply(
+  c("keep", "replace", "warn", "error"),
+  run_pending_mode
+)) |> kable()
 ```
 
-> **Arbitration rule:** every pending action competes with every model proposal
-> on one timeline, and the earliest `time_next` is realized next. Pending
-> actions are not discarded when they lose — they wait their turn. Ties break
-> deterministically, but encode priority with distinct offsets rather than
-> relying on that, and use `condition` when you want one response *instead of*
-> another.
 
-## Distribution of outcomes across many runs
 
-One seed is one sample path. To see the real trade-off, run the same courier
-500 times under each policy — each replicate gets its own seed, so the
-stochastic draws (dispatch timing, battery drain, route) vary across runs, but
-the comparison between policies is exact within each replicate because both
-use the same seed.
+|mode    |selected_times | realized_time| warnings|errored |last_committed_event |
+|:-------|:--------------|-------------:|--------:|:-------|:--------------------|
+|keep    |4, 5           |             4|        0|FALSE   |end_shift            |
+|replace |4, 5           |             5|        0|FALSE   |end_shift            |
+|warn    |4, 5           |             5|        1|FALSE   |end_shift            |
+|error   |4, 5           |            NA|        0|TRUE    |dispatch_check       |
+
+
+
+The modes make the modeler's intent explicit:
+
+- `keep` retains the hour-4 action and discards the new hour-5 selection;
+- `replace` silently stages the hour-5 selection instead;
+- `warn` stages the replacement and reports it; and
+- `error` stops rather than choosing between them.
+
+Notice that `keep` still realizes the first action even though the model's
+dispatch proposal was refreshed after both offers. Also notice that the
+`error` row ends on the second `dispatch_check`: that trigger event and its
+transition had already occurred before the pending conflict was discovered.
+flux reports the failure, but does not pretend that earlier simulation work
+never happened.
+
+## Two ordinary decisions can share one trigger
+
+Now give a low-battery courier two distinct questions at the same
+`dispatch_check`:
+
+- should the offer be confirmed? and
+- should the payload be reduced for safety?
+
+These remain **ordinary** decision points. Each condition is checked, each
+policy call is separate, and each decision owns its own pending slot.
 
 
 ``` r
-make_fresh_courier <- function() {
-  Entity$new(
-    id          = "courier_A",
-    init        = list(battery_pct = 80, route_zone = "urban",
-                       payload_kg = 0, dispatch_mode = "idle"),
-    schema      = delivery_schema(),
-    entity_type = "courier",
-    time0       = 0
-  )
-}
-
-n_reps <- 500
-
-dist_results <- lapply(seq_len(n_reps), function(s) {
-  m_a <- load_model(
-    schema  = schema_with_dp, bundle = delivery_bundle_for_policy(),
-    policy  = policy_always_accept, trajectory = list(detail = "none"),
-    runtime = RuntimeContext(seed = s)
-  )
-
-  m_t <- load_model(
-    schema  = schema_with_dp, bundle = delivery_bundle_for_policy(),
-    policy  = policy_battery_threshold, trajectory = list(detail = "none"),
-    runtime = RuntimeContext(seed = s)
-  )
-  oa <- m_a$run(make_fresh_courier(), max_events = 500)
-  ot <- m_t$run(make_fresh_courier(), max_events = 500)
-  tibble(
-    replicate     = s,
-    del_accept    = count_deliveries(oa),
-    del_threshold = count_deliveries(ot),
-    bat_accept    = oa$entity$current$battery_pct,
-    bat_threshold = ot$entity$current$battery_pct
-  )
-}) |> bind_rows()
-```
-
-Because both policies run with the same seed in each replicate, we can compute
-the *within-replicate* difference — the pure causal effect of switching policy,
-with all randomness held constant:
-
-
-``` r
-results <- dist_results |>
-  mutate(
-    delta_del = del_threshold - del_accept,
-    delta_bat = bat_threshold - bat_accept
-  )
-
-summary_tbl <- tribble(
-  ~Metric,                                ~Value,
-  "Deliveries (accept): mean",            round(mean(results$del_accept), 1),
-
-  "Deliveries (accept): median",          median(results$del_accept),
-  "Deliveries (threshold): mean",         round(mean(results$del_threshold), 1),
-  "Deliveries (threshold): median",       median(results$del_threshold),
-  "Delta deliveries: mean",               round(mean(results$delta_del), 2),
-  "P(threshold > accept) — deliveries",   round(mean(results$delta_del > 0), 2),
-  "Delta battery: mean",                  round(mean(results$delta_bat), 1),
-  "P(threshold > accept) — battery",      round(mean(results$delta_bat > 0), 2)
+ordinary_dispatch_response <- DecisionPoint(
+  id = "dispatch_response",
+  trigger = "dispatch_check",
+  condition = function(entity) entity$current$dispatch_mode == "assigned",
+  allowed_actions = "confirm_dispatch",
+  action_handlers = list(
+    confirm_dispatch = dispatch_handlers$confirm_dispatch
+  ),
+  on_pending_action = "replace"
 )
-kable(summary_tbl)
+
+ordinary_battery_safety <- DecisionPoint(
+  id = "battery_safety",
+  trigger = "dispatch_check",
+  condition = function(entity) {
+    entity$current$dispatch_mode == "assigned" &&
+      entity$current$battery_pct < 30
+  },
+  allowed_actions = "shed_payload",
+  action_handlers = list(
+    shed_payload = function(entity, event) {
+      list(payload_kg = entity$current$payload_kg / 2)
+    }
+  ),
+  on_pending_action = "replace"
+)
+
+ordinary_shared_schema <- set_schema(
+  vars = delivery_schema(),
+  time_spec = time_spec(unit = "hours"),
+  decision_points = list(
+    ordinary_dispatch_response,
+    ordinary_battery_safety
+  )
+)
+
+ordinary_shared_policy <- function(decision_point, entity) {
+  if (identical(decision_point$id, "battery_safety")) {
+    return(ActionEvent("shed_payload", entity$last_time + 0.25))
+  }
+  ActionEvent("confirm_dispatch", entity$last_time + 0.5)
+}
+
+ordinary_shared_model <- load_model(
+  schema = ordinary_shared_schema,
+  bundle = controlled_delivery_bundle(offer_times = 1),
+  policy = ordinary_shared_policy,
+  trajectory = list(detail = "summary")
+)
+
+ordinary_shared_out <- ordinary_shared_model$run(
+  fresh_courier("courier_two_ordinary", battery_pct = 15),
+  max_events = 10,
+  return_observations = TRUE
+)
+
+trajectory_table(ordinary_shared_out$trajectory_records) |>
+  select(t, decision_point_id, condition_met, selected_action) |>
+  kable()
 ```
 
 
 
-|Metric                             | Value|
-|:----------------------------------|-----:|
-|Deliveries (accept): mean          |  5.20|
-|Deliveries (accept): median        |  5.00|
-|Deliveries (threshold): mean       |  4.50|
-|Deliveries (threshold): median     |  4.00|
-|Delta deliveries: mean             | -0.74|
-|P(threshold > accept) — deliveries |  0.03|
-|Delta battery: mean                |  6.60|
-|P(threshold > accept) — battery    |  0.60|
+|  t|decision_point_id |condition_met |selected_action  |
+|--:|:-----------------|:-------------|:----------------|
+|  1|dispatch_response |TRUE          |confirm_dispatch |
+|  1|battery_safety    |TRUE          |shed_payload     |
 
 
 
-There is a genuine trade-off — and in a non-trivial fraction of runs, the
-threshold policy actually delivers *more* than the always-accept policy. This
-happens when greedily accepting every dispatch early in the shift burns battery
-that would have been needed for dispatches later. The distribution of
-counterfactual outcomes is the right object to reason about, not a single
-point estimate.
+Both actions later enter event history. Their times order their realization;
+neither action cancels the other.
 
 
 ``` r
-# Reshape to long form for plotting
-plot_df <- results |>
-  select(replicate, del_accept, del_threshold) |>
-  pivot_longer(cols = c(del_accept, del_threshold),
-               names_to = "policy", values_to = "deliveries") |>
-  mutate(policy = recode(policy,
-    del_accept    = "Always accept",
-    del_threshold = "Battery threshold (60%)"
+ordinary_shared_out$observations |>
+  filter(event_type %in% c("shed_payload", "confirm_dispatch")) |>
+  select(time, event_type, dispatch_mode, payload_kg, battery_pct) |>
+  kable()
+```
+
+
+
+| time|event_type       |dispatch_mode | payload_kg| battery_pct|
+|----:|:----------------|:-------------|----------:|-----------:|
+| 1.25|shed_payload     |assigned      |          2|          15|
+| 1.50|confirm_dispatch |in_transit    |          2|          15|
+
+
+
+This pattern is appropriate when the questions truly are independent. A
+slightly earlier action time is sequencing, not priority: it does not make a
+later pending action disappear.
+
+## Grouped decisions coordinate one policy consultation
+
+Sometimes those two questions must be answered together. A grouped decision
+point owns the shared trigger and refers to ordinary leaf decision points that
+retain their conditions, allowed actions, handlers, audit settings, and pending
+slots.
+
+Here the leaves are **group-only**, so their direct trigger is explicitly
+`NULL`. The group `post_dispatch_review` fires on `dispatch_check`.
+
+
+``` r
+group_dispatch_response <- DecisionPoint(
+  id = "dispatch_response",
+  trigger = NULL,
+  condition = function(entity) entity$current$dispatch_mode == "assigned",
+  allowed_actions = c("confirm_dispatch", "decline_dispatch"),
+  action_handlers = dispatch_handlers,
+  audit = TRUE,
+  on_pending_action = "replace"
+)
+
+group_battery_safety <- DecisionPoint(
+  id = "battery_safety",
+  trigger = NULL,
+  condition = function(entity) {
+    entity$current$dispatch_mode == "assigned" &&
+      entity$current$battery_pct < 30
+  },
+  allowed_actions = "shed_payload",
+  action_handlers = list(
+    shed_payload = function(entity, event) {
+      list(payload_kg = entity$current$payload_kg / 2)
+    }
+  ),
+  audit = TRUE,
+  on_pending_action = "replace"
+)
+
+post_dispatch_review <- GroupedDecisionPoint(
+  id = "post_dispatch_review",
+  trigger = "dispatch_check",
+  members = c("dispatch_response", "battery_safety"),
+  label = "Coordinate offer response and battery safety"
+)
+
+grouped_delivery_schema <- set_schema(
+  vars = delivery_schema(),
+  time_spec = time_spec(unit = "hours"),
+  decision_points = list(
+    group_dispatch_response,
+    group_battery_safety
+  ),
+  decision_groups = list(post_dispatch_review)
+)
+```
+
+The lifecycle is intentionally narrow:
+
+1. `dispatch_check` fires the group.
+2. The delivery transition is applied once.
+3. Core evaluates member conditions on that post-transition courier state.
+4. If at least one member is eligible, Core supplies the exact named list to
+   one `policy$propose_plan()` call.
+5. The policy returns one complete `DecisionPlan`, naming every eligible member
+   with an `ActionEvent` or explicit `NULL`.
+6. Core preflights every selection and pending-mode outcome, then commits the
+   resolved pending store once. `NULL` and `keep` can leave a member's slot
+   unchanged; newly staged or replaced actions later arbitrate and realize
+   independently.
+
+The function below runs controlled scientific scenarios and records exactly
+what the policy received. In the fourth scenario, the policy deliberately
+selects no new battery-safety action.
+
+
+``` r
+run_grouped_delivery <- function(label, offer_open, battery_pct,
+                                 safety_selection = TRUE) {
+  policy_trace <- new.env(parent = emptyenv())
+  policy_trace$calls <- 0L
+  policy_trace$eligible_ids <- character()
+  policy_trace$plan <- NULL
+
+  policy <- list(
+    propose_plan = function(grouped_decision_point,
+                            eligible_decision_points,
+                            entity,
+                            sim_ctx,
+                            param_ctx) {
+      policy_trace$calls <- policy_trace$calls + 1L
+      policy_trace$eligible_ids <- names(eligible_decision_points)
+
+      selections <- setNames(
+        vector("list", length(eligible_decision_points)),
+        names(eligible_decision_points)
+      )
+
+      if ("dispatch_response" %in% names(selections)) {
+        selections["dispatch_response"] <- list(ActionEvent(
+          "confirm_dispatch",
+          entity$last_time + 0.5
+        ))
+      }
+
+      if ("battery_safety" %in% names(selections)) {
+        if (isTRUE(safety_selection)) {
+          selections["battery_safety"] <- list(ActionEvent(
+            "shed_payload",
+            entity$last_time + 0.25
+          ))
+        } else {
+          # Single-bracket replacement preserves an explicit NULL list entry.
+          selections["battery_safety"] <- list(NULL)
+        }
+      }
+
+      plan <- DecisionPlan(
+        selections = selections,
+        metadata = list(strategy = "post-dispatch review v1")
+      )
+      policy_trace$plan <- plan
+      plan
+    }
+  )
+
+  model <- load_model(
+    schema = grouped_delivery_schema,
+    bundle = controlled_delivery_bundle(
+      offer_times = 1,
+      offer_open = offer_open
+    ),
+    policy = policy,
+    trajectory = list(detail = "summary")
+  )
+
+  out <- model$run(
+    fresh_courier(paste0("courier_", label), battery_pct = battery_pct),
+    max_events = 10,
+    return_observations = TRUE
+  )
+
+  records <- out$trajectory_records
+  by_member <- setNames(records, vapply(
+    records,
+    function(record) record$decision_point_id,
+    character(1)
   ))
 
-ggplot(plot_df, aes(x = deliveries, fill = policy)) +
-  geom_bar(position = "dodge", width = 0.7) +
-  scale_fill_manual(values = c("Always accept" = "#4393C3",
-                                "Battery threshold (60%)" = "#D6604D")) +
-  labs(
-    x    = "Deliveries completed per shift",
-    y    = "Count (out of 500 replicates)",
-    fill = "Policy",
-    title = "Distribution of deliveries under each policy"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(legend.position = "top")
+  condition_value <- function(member_id) {
+    isTRUE(by_member[[member_id]]$condition_met)
+  }
+
+  selection_text <- if (is.null(policy_trace$plan)) {
+    "(policy skipped)"
+  } else {
+    paste(vapply(names(policy_trace$plan$selections), function(member_id) {
+      selected <- policy_trace$plan$selections[[member_id]]
+      value <- if (is.null(selected)) "NULL" else selected$action_type
+      paste0(member_id, " = ", value)
+    }, character(1)), collapse = "; ")
+  }
+
+  summary <- data.frame(
+    scenario = label,
+    trigger = "dispatch_check @ 1",
+    post_transition_offer = if (offer_open) "open" else "none",
+    post_transition_battery = battery_pct,
+    dispatch_response_condition = condition_value("dispatch_response"),
+    battery_safety_condition = condition_value("battery_safety"),
+    eligible_ids = if (policy_trace$calls == 0L) {
+      "(none; policy skipped)"
+    } else {
+      paste(policy_trace$eligible_ids, collapse = ", ")
+    },
+    policy_calls = policy_trace$calls,
+    selections = selection_text,
+    stringsAsFactors = FALSE
+  )
+
+  list(summary = summary, out = out, policy_trace = policy_trace)
+}
+
+grouped_runs <- list(
+  open_healthy = run_grouped_delivery(
+    "open_healthy", offer_open = TRUE, battery_pct = 80
+  ),
+  open_low = run_grouped_delivery(
+    "open_low", offer_open = TRUE, battery_pct = 15
+  ),
+  no_offer_healthy = run_grouped_delivery(
+    "no_offer_healthy", offer_open = FALSE, battery_pct = 80
+  ),
+  open_low_explicit_null = run_grouped_delivery(
+    "open_low_explicit_null", offer_open = TRUE, battery_pct = 15,
+    safety_selection = FALSE
+  )
+)
+
+grouped_summary <- bind_rows(lapply(grouped_runs, `[[`, "summary"))
+
+grouped_summary |>
+  transmute(
+    scenario,
+    trigger,
+    post_transition_state = paste0(
+      "offer = ", post_transition_offer,
+      "; battery = ", post_transition_battery
+    ),
+    condition_results = paste0(
+      "dispatch_response = ", dispatch_response_condition,
+      "; battery_safety = ", battery_safety_condition
+    ),
+    eligible_ids
+  ) |>
+  kable()
 ```
 
-![plot of chunk unnamed-chunk-21](figure/unnamed-chunk-21-1.png)
 
-## What trajectory records enable
 
-`TrajectoryRecord` is not just an audit log. It is the structured surface that
-the rest of the flux ecosystem builds on:
+|scenario               |trigger            |post_transition_state      |condition_results                                 |eligible_ids                      |
+|:----------------------|:------------------|:--------------------------|:-------------------------------------------------|:---------------------------------|
+|open_healthy           |dispatch_check @ 1 |offer = open; battery = 80 |dispatch_response = TRUE; battery_safety = FALSE  |dispatch_response                 |
+|open_low               |dispatch_check @ 1 |offer = open; battery = 15 |dispatch_response = TRUE; battery_safety = TRUE   |dispatch_response, battery_safety |
+|no_offer_healthy       |dispatch_check @ 1 |offer = none; battery = 80 |dispatch_response = FALSE; battery_safety = FALSE |(none; policy skipped)            |
+|open_low_explicit_null |dispatch_check @ 1 |offer = open; battery = 15 |dispatch_response = TRUE; battery_safety = TRUE   |dispatch_response, battery_safety |
 
-- **Policy comparison**: run the same courier under two policies with the same
-  seed; diff the trajectory_records to see where and why they diverge.
-- **Counterfactual analysis**: fix seed + parameter draw; vary only the policy;
-  compare outcomes.
-- **RL training** (future: `fluxSim`): the `(observation, action, reward,
-  next_state)` tuple for each record becomes a training transition.
-- **Audit and explainability**: for any individual run, reconstruct the full
-  decision history and ask "why did the simulation do that?"
+
+
+``` r
+
+grouped_summary |>
+  select(scenario, policy_calls, selections) |>
+  kable()
+```
+
+
+
+|scenario               | policy_calls|selections                                                          |
+|:----------------------|------------:|:-------------------------------------------------------------------|
+|open_healthy           |            1|dispatch_response = confirm_dispatch                                |
+|open_low               |            1|dispatch_response = confirm_dispatch; battery_safety = shed_payload |
+|no_offer_healthy       |            0|(policy skipped)                                                    |
+|open_low_explicit_null |            1|dispatch_response = confirm_dispatch; battery_safety = NULL         |
+
+
+
+The policy never decides eligibility. Core supplies the eligible leaf objects,
+in the group's declared member order. In the three main scenarios:
+
+- an open offer with healthy battery makes only `dispatch_response` eligible;
+- an open offer with low battery makes both leaves eligible, so one plan must
+  answer both questions; and
+- no open offer with healthy battery makes neither leaf eligible, so Core does
+  not call `propose_plan()`.
+
+The explicit-`NULL` variant still names `battery_safety` in a complete plan. It
+means “this eligible question was considered, but no new action was selected.”
+It is different from omitting the member, which makes a grouped plan invalid.
+
+### One activation, visible in raw and tabular records
+
+The low-battery activation emits one leaf row per eligible member. Raw records
+retain both the group identity and one deterministic run-local activation id.
+They also retain the plan's opaque audit metadata.
+
+
+``` r
+low_records <- grouped_runs$open_low$out$trajectory_records
+
+data.frame(
+  decision_point_id = vapply(low_records, `[[`, character(1),
+                             "decision_point_id"),
+  grouped_decision_point_id = vapply(low_records, `[[`, character(1),
+                                     "grouped_decision_point_id"),
+  group_activation_id = vapply(low_records, `[[`, character(1),
+                               "group_activation_id"),
+  plan_strategy = vapply(low_records, function(record) {
+    record$decision_plan_metadata$strategy
+  }, character(1))
+) |> kable()
+```
+
+
+
+|decision_point_id |grouped_decision_point_id |group_activation_id |plan_strategy           |
+|:-----------------|:-------------------------|:-------------------|:-----------------------|
+|dispatch_response |post_dispatch_review      |group_activation_1  |post-dispatch review v1 |
+|battery_safety    |post_dispatch_review      |group_activation_1  |post-dispatch review v1 |
+
+
+
+`trajectory_table()` exposes the two compact identity columns, while arbitrary
+plan metadata remains in raw records.
+
+
+``` r
+trajectory_table(low_records) |>
+  select(decision_point_id, grouped_decision_point_id,
+         group_activation_id, condition_met, selected_action) |>
+  kable()
+```
+
+
+
+|decision_point_id |grouped_decision_point_id |group_activation_id |condition_met |selected_action  |
+|:-----------------|:-------------------------|:-------------------|:-------------|:----------------|
+|dispatch_response |post_dispatch_review      |group_activation_1  |TRUE          |confirm_dispatch |
+|battery_safety    |post_dispatch_review      |group_activation_1  |TRUE          |shed_payload     |
+
+
+
+The id connects the leaf rows to this one firing; it is not a durable cross-run
+identifier. Audited ineligible members share the activation id too. That is why
+the zero-eligible scenario can be audited without inventing a synthetic parent
+row.
+
+### Coordinated selection is not joint realization
+
+In this low-battery run, both selections resolved to new pending actions in the
+plan's one commit. They remain separate actions on the event calendar.
+
+
+``` r
+grouped_runs$open_low$out$observations |>
+  filter(event_type %in% c("shed_payload", "confirm_dispatch")) |>
+  select(time, event_type, dispatch_mode, payload_kg, battery_pct) |>
+  kable()
+```
+
+
+
+| time|event_type       |dispatch_mode | payload_kg| battery_pct|
+|----:|:----------------|:-------------|----------:|-----------:|
+| 1.25|shed_payload     |assigned      |          2|          15|
+| 1.50|confirm_dispatch |in_transit    |          2|          15|
+
+
+
+At hour 1.25, `shed_payload` halves the four-kilogram offer. At hour 1.5,
+`confirm_dispatch` moves the courier into transit. A **composite action** would
+instead be one action event with one handler that applies both state changes at
+one realization time. A grouped plan coordinates policy selection, complete
+preflight, and one pending-store commit. Some resolved slots may remain
+unchanged because of explicit `NULL` or `keep`; later action realization and
+effects are not atomic.
+
+The explicit-`NULL` run makes this boundary especially visible: both questions
+were eligible and recorded under one activation, but only
+`confirm_dispatch` entered event history.
+
+
+``` r
+null_out <- grouped_runs$open_low_explicit_null$out
+
+list(
+  decisions = trajectory_table(null_out$trajectory_records) |>
+    select(decision_point_id, condition_met, selected_action),
+  realized_actions = null_out$events |>
+    filter(event_type %in% c("shed_payload", "confirm_dispatch")) |>
+    select(time, event_type)
+)
+#> $decisions
+#>   decision_point_id condition_met  selected_action
+#> 1 dispatch_response          TRUE confirm_dispatch
+#> 2    battery_safety          TRUE             <NA>
+#>
+#> $realized_actions
+#>   time       event_type
+#> 1  1.5 confirm_dispatch
+```
+
+## Advanced contract notes
+
+Most applied policies need only the patterns above. The following boundaries
+matter when you build reusable policy tooling or diagnose a failed run.
+
+### Independent selection inside an explicit grouped adapter
+
+A group always requires `policy$propose_plan()`; Core does not silently fall
+back to ordinary calls. If joint reasoning is unnecessary, policy code can
+make that choice explicit with a small adapter. Applied to the delivery leaves,
+the pattern is:
+
+
+``` r
+per_member_plan <- function(propose_action) {
+  function(grouped_decision_point, eligible_decision_points,
+           entity, sim_ctx, param_ctx) {
+    selections <- lapply(eligible_decision_points, function(decision_point) {
+      propose_action(decision_point, entity, sim_ctx, param_ctx)
+    })
+    DecisionPlan(selections)
+  }
+}
+
+delivery_policy <- list(
+  propose_plan = per_member_plan(delivery_leaf_policy)
+)
+```
+
+The named eligible list determines the complete plan shape, and the adapter
+calls leaves in that declared order. Complete preflight and one grouped
+pending-store commit still happen after it returns, with each leaf's pending
+mode determining whether its slot changes.
+
+### Provenance, diagnostics, and partial progress
+
+- `ActionEvent(decision_point_id = NULL)` is the usual policy return. Core fills
+  the firing leaf id as provenance. An explicitly supplied exact match is
+  accepted; a mismatch errors rather than redirecting the action.
+- Intentional outcomes are callback-specific: a condition may return `FALSE`;
+  an ordinary policy may return `NULL`; and an action handler may return `NULL`
+  to realize the action with no state patch. A grouped policy must instead
+  return a complete `DecisionPlan`, using explicit `NULL` member entries as
+  needed; `propose_plan()` itself never returns `NULL`.
+- Thrown condition, policy, and action-handler errors stop the run with callback
+  context. If a domain-specific fallback is scientifically justified, catch the
+  error inside that callback and deliberately return the appropriate valid
+  result above.
+- An ordinary non-`ActionEvent` or disallowed action type is warned about and
+  ignored. Provenance conflicts and thrown callbacks error. Grouped plan
+  validation is stricter still: one invalid member rejects the complete plan
+  before any of that plan's pending slots change.
+- The triggering event and transition occur before post-transition conditions,
+  policy calls, and pending-conflict checks. A later failure does not roll them
+  back, nor does it roll back earlier independent ordinary or grouped work.
+- A grouped `warn` replacement produces one plan-level warning naming all
+  affected members. If warnings are promoted to errors, the plan has not yet
+  changed any pending slot.
+
+### Reproducibility is not automatic causal alignment
+
+A `RuntimeContext(seed = ...)` can replay a configured direct run, and cohort
+execution assigns reproducible streams at its outer boundary. Two policies can
+nevertheless consume random numbers differently after their behavior diverges.
+Using the same seed does not by itself keep every later draw paired, nor does it
+turn a policy comparison into a causal estimate. Design explicit common-random-
+number or experimental comparisons when that scientific claim matters.
 
 ## Summary
 
-| Concept | What you learned |
-|---------|-----------------|
-| `DecisionPoint()` | Declares where in the event timeline a policy is consulted |
-| `trigger` | Pre-transition gate: char event name(s) or `function(event)` on event-level fields |
-| `action_handlers` | Named list of `function(entity, event)` — engine calls these directly for action events, no custom bundle needed |
-| `condition` | Post-transition guard: `function(entity)` on updated state; when it returns `FALSE` the policy call is skipped |
-| `audit = TRUE` | Emit `TrajectoryRecord` even when `condition` suppressed the policy; `condition_met = FALSE` flags those records |
-| Policy function | `function(decision_point, entity)` → `ActionEvent` or NULL; add `sim_ctx` / `param_ctx` to the signature only when needed |
-| `ActionEvent()` | The proposed intervention — enters the timeline like any other event |
-| `load_model()` | Validates schema + bundle + policy + trajectory config together |
-| Trajectory records | Per-decision audit trail: `observation`, `action`, `state_before/after`, `condition_met` |
-| Same seed, different policy | Isolates the causal effect of the policy on outcomes |
-| Multiple DPs + arbitration | Multiple DPs can fire in one event cycle; the earliest happens next while later actions remain pending |
+| Concept | Practical meaning |
+|---|---|
+| `DecisionPoint()` | Declares a leaf decision, including its trigger or explicit group-only `NULL`, condition, allowed actions, handlers, audit choice, and pending mode |
+| Policy selection | The policy chooses an `ActionEvent` or, for an ordinary decision, intentionally returns `NULL` |
+| Pending resolution | Core applies the leaf's pending mode; the resulting retained or newly staged action occupies at most one engine-owned slot and survives model-proposal refreshes |
+| Realization and effect | The pending action must first win timeline arbitration; event history records realization and its handler applies the state patch |
+| `condition` and `audit` | Eligibility uses post-transition state; audit optionally records vetoed visits |
+| Shared ordinary trigger | Several leaves may fire independently from one event, with separate policy calls and pending slots |
+| `GroupedDecisionPoint()` | One shared trigger coordinates eligibility across referenced leaves and opens one plan consultation |
+| `DecisionPlan()` | A complete named answer for every eligible leaf; each value is an `ActionEvent` or explicit `NULL` |
+| Group identity | `grouped_decision_point_id` and run-local `group_activation_id` connect leaf audit rows from one firing |
+| Grouped atomicity | Complete preflight precedes one pending-store commit; `NULL` or `keep` may leave slots unchanged, and later action realization and effects remain independent |
 
 **Next:** [04_data_preparation_and_model_training.md](04_data_preparation_and_model_training.md) —
 generate synthetic operational logs and prepare them into train/test/validation

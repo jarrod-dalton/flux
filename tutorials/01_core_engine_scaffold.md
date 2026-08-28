@@ -18,7 +18,7 @@ When multiple processes propose events at the same `time_next`, the engine selec
 This means `process_id` is not just a label — it is part of the model's deterministic resolution policy. If your model has a preferred priority when ties occur, encode that priority into the `process_id` (for example, a zero-padded numeric prefix). We will introduce multiple competing processes later in this tutorial; for now, bundles with a single process just need a single consistent name.
 
 
-An `Entity` may also carry an optional single-column identifier `id` (default `NULL`). 
+An `Entity` may also carry an optional single-column identifier `id` (default `NULL`).
 
 
 To begin, load the library.
@@ -203,10 +203,10 @@ out$entity$state(c("route_zone", "battery_pct", "payload_kg"))
 #> <flux_state>
 #> $route_zone
 #> [1] "urban"
-#> 
+#>
 #> $battery_pct
 #> [1] 6.005718
-#> 
+#>
 #> $payload_kg
 #> [1] 18.57235
 ```
@@ -246,10 +246,10 @@ courier_d <- Entity$new(
 courier_d$snapshot(c("battery_pct", "deliveries_completed", "battery_efficiency"))
 #> $battery_pct
 #> [1] 85
-#> 
+#>
 #> $deliveries_completed
 #> [1] 4
-#> 
+#>
 #> $battery_efficiency
 #> [1] 0.267
 ```
@@ -290,13 +290,13 @@ courier_t$update(list(battery_pct = 83), t = 11.2)
 courier_t$snapshot_at_time(9.5,  c("battery_pct", "shift_elapsed"))
 #> $battery_pct
 #> [1] 100
-#> 
+#>
 #> $shift_elapsed
 #> [1] 1.5
 courier_t$snapshot_at_time(11.2, c("battery_pct", "shift_elapsed"))
 #> $battery_pct
 #> [1] 100
-#> 
+#>
 #> $shift_elapsed
 #> [1] 3.2
 ```
@@ -794,33 +794,42 @@ action event actually realized.
 tr_df <- trajectory_table(out_dp$trajectory_records,
                           vars = c("battery_pct", "deliveries_completed"))
 head(tr_df, 10)
-#>   run_id entity_id         t decision_point_id trigger_event selected_action
-#> 1  run_1    entity  1.986102     post_dispatch      dispatch      stand_down
-#> 2  run_1    entity  2.919758     post_dispatch      dispatch      stand_down
-#> 3  run_1    entity  4.221382     post_dispatch      dispatch      stand_down
-#> 4  run_1    entity  6.200366     post_dispatch      dispatch      stand_down
-#> 5  run_1    entity  8.233018     post_dispatch      dispatch           surge
-#> 6  run_1    entity  8.922254     post_dispatch      dispatch           surge
-#> 7  run_1    entity  9.527006     post_dispatch      dispatch           surge
-#> 8  run_1    entity 10.263482     post_dispatch      dispatch           surge
-#>   condition_met battery_pct_before battery_pct_after
-#> 1            NA          100.00000          93.03451
-#> 2            NA           93.03451          85.58015
-#> 3            NA           85.58015          75.94986
-#> 4            NA           75.94986          64.84819
-#> 5            NA           64.84819          53.85577
-#> 6            NA           53.85577          40.10300
-#> 7            NA           40.10300          20.06496
-#> 8            NA           20.06496           0.00000
-#>   deliveries_completed_before deliveries_completed_after
-#> 1                           0                          1
-#> 2                           1                          2
-#> 3                           2                          3
-#> 4                           3                          4
-#> 5                           4                          5
-#> 6                           5                          6
-#> 7                           6                          7
-#> 8                           7                          8
+#>   run_id entity_id         t decision_point_id grouped_decision_point_id
+#> 1  run_1    entity  1.986102     post_dispatch                      <NA>
+#> 2  run_1    entity  2.919758     post_dispatch                      <NA>
+#> 3  run_1    entity  4.221382     post_dispatch                      <NA>
+#> 4  run_1    entity  6.200366     post_dispatch                      <NA>
+#> 5  run_1    entity  8.233018     post_dispatch                      <NA>
+#> 6  run_1    entity  8.922254     post_dispatch                      <NA>
+#> 7  run_1    entity  9.527006     post_dispatch                      <NA>
+#> 8  run_1    entity 10.263482     post_dispatch                      <NA>
+#>   group_activation_id trigger_event selected_action condition_met
+#> 1                <NA>      dispatch      stand_down            NA
+#> 2                <NA>      dispatch      stand_down            NA
+#> 3                <NA>      dispatch      stand_down            NA
+#> 4                <NA>      dispatch      stand_down            NA
+#> 5                <NA>      dispatch           surge            NA
+#> 6                <NA>      dispatch           surge            NA
+#> 7                <NA>      dispatch           surge            NA
+#> 8                <NA>      dispatch           surge            NA
+#>   battery_pct_before battery_pct_after deliveries_completed_before
+#> 1          100.00000          93.03451                           0
+#> 2           93.03451          85.58015                           1
+#> 3           85.58015          75.94986                           2
+#> 4           75.94986          64.84819                           3
+#> 5           64.84819          53.85577                           4
+#> 6           53.85577          40.10300                           5
+#> 7           40.10300          20.06496                           6
+#> 8           20.06496           0.00000                           7
+#>   deliveries_completed_after
+#> 1                          1
+#> 2                          2
+#> 3                          3
+#> 4                          4
+#> 5                          5
+#> 6                          6
+#> 7                          7
+#> 8                          8
 ```
 
 Notice the pattern: the policy switches to "surge" as the battery drops below
