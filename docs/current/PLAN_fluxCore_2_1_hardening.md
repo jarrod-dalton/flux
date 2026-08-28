@@ -1695,6 +1695,9 @@ independent and do not acquire an implicit transaction.
 
 #### S3a — Constructor and schema contract
 
+**Status:** Landed in fluxCore `1c1c906`; the schema gate is complete and S3b runtime
+dispatch remains separate.
+
 Start from the issue's public vocabulary:
 
 ```r
@@ -1739,11 +1742,11 @@ for manually assembled schemas.
 
 - [x] Lock the structural contract: globally unique group/leaf ids, at least two distinct
       members, preserved declaration order, leaf-only references, and no nesting.
-- [ ] Finalize constructor validation messages, print behavior, and positional tests without
+- [x] Finalize constructor validation messages, print behavior, and positional tests without
       adding new semantic fields.
-- [ ] Add `decision_groups` to the schema contract without changing the meaning or ordering
+- [x] Add `decision_groups` to the schema contract without changing the meaning or ordering
       of `decision_points`.
-- [ ] Add constructor, schema, reference-resolution, serialization, and no-group backward-
+- [x] Add constructor, schema, reference-resolution, serialization, and no-group backward-
       compatibility tests.
 - [x] Lock trigger ownership: explicit `NULL` means group-only; a normal leaf trigger may
       coexist with group membership; grouped eligibility uses the leaf condition; and
@@ -2128,3 +2131,4 @@ being resolved by silent scope expansion.
 | 2026-08-27 | Completed Q10 in root `74d5e46` and fluxCore `2db6088`: tightened the still-accurate 2.0.0 release blurb, removed and ignored the tracked local `AGENT_CONTEXT.md` while preserving its local copy, and refreshed the package README around the matching-clock, typed-parameter, trajectory-identity, and decisions/actions contracts. The affected copied example and public links were checked against the landed source stack. |
 | 2026-08-27 | Landed the focused Tutorial 01 Q9 repair in root `62d869c`: the ordinary and parameter cohorts now render 8 and 24 runs, callbacks read direct `param_ctx$params` fields with field-level defaults, and the returned draw is visibly one non-nested `ParamContext`. A fatal fresh-environment knit and direct no-draw fallback probe passed. |
 | 2026-08-27 | Completed a five-tutorial fatal-render baseline against the current source stack after installing local fluxPrepare 2.0.0. The run exposed and corrected Tutorial 03's one stale Q2 column name (`action_taken` -> `selected_action`) and replaced Tutorial 04's version-sensitive `~50x` object-size claim with accurate qualified prose. The final five-tutorial render remains gated on stable S3a-S3c implementation. |
+| 2026-08-27 | Landed S3a in fluxCore `1c1c906`: exported bounded `GroupedDecisionPoint()` and `DecisionPlan()` declarations, retained the required positional `DecisionPoint()` trigger while allowing explicit `NULL` for referenced group-only leaves, stored groups separately in full schemas, and added shared defensive cross-reference validation without any Engine dispatch. Independent review found no S3b leakage; 290 focused assertions, 838 full-suite assertions, and a non-CRAN package check all completed without failures (package check: 0 errors, 0 warnings, 0 notes). |
