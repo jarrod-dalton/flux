@@ -1654,8 +1654,8 @@ should depend on its contents.
 
 ### S3 — Add grouped decision points as a bounded 2.1 extension
 
-**Status:** S3a and S3b are landed and verified; S3c trajectory identity is the active
-implementation gate. This is justified by a real modeling gap—one
+**Status:** S3a–S3c are landed and verified; S3d tutorial, release-note, and ecosystem
+verification is the active gate. This is justified by a real modeling gap—one
 policy consultation sometimes needs to coordinate selections across several existing
 decision points—not by the desire to add a headline feature. Defer S3 if implementation
 expands into general workflows, rollback, joint action realization, or comprehensive action
@@ -1899,6 +1899,9 @@ before the one commit so a warning promoted to an error also leaves every slot u
 
 #### S3c — Trajectory and identity contract
 
+**Status:** Landed in fluxCore `18ec1fb`. The bounded audit gate is complete; broader
+proposal-to-realization lineage remains deferred to S2.
+
 S3 needs enough audit identity to show which leaf evaluations came from one firing without
 requiring scientists to replay member conditions. Add two identities:
 
@@ -1931,9 +1934,9 @@ type to a particular earlier group activation.
       firing.
 - [x] Keep opaque plan metadata out of flattened trajectory tables and out of all execution
       semantics.
-- [ ] Add only the approved group/activation identity fields, preserving ordinary-record behavior
+- [x] Add only the approved group/activation identity fields, preserving ordinary-record behavior
       and the Q2/Q6 output contracts.
-- [ ] Test multiple constituent selections, explicit `NULL` selections, audited vetoes,
+- [x] Test multiple constituent selections, explicit `NULL` selections, audited vetoes,
       zero-eligible activations, ordinary decisions, and stable run-local activation
       correlation.
 
@@ -2138,3 +2141,5 @@ being resolved by silent scope expansion.
 | 2026-08-27 | Landed S3a in fluxCore `1c1c906`: exported bounded `GroupedDecisionPoint()` and `DecisionPlan()` declarations, retained the required positional `DecisionPoint()` trigger while allowing explicit `NULL` for referenced group-only leaves, stored groups separately in full schemas, and added shared defensive cross-reference validation without any Engine dispatch. Independent review found no S3b leakage; 290 focused assertions, 838 full-suite assertions, and a non-CRAN package check all completed without failures (package check: 0 errors, 0 warnings, 0 notes). |
 | 2026-08-27 | Landed S3b in fluxCore `f15f0bb`: raw activation overlap now fails before mutation; post-transition eligibility is frozen before policy dispatch; strict one-call grouped plans are validated and preflighted before one pending-store commit; and ordinary/group boundaries remain deterministic and independent. Independent review found no correctness blocker. The full suite passed 954 assertions and the non-CRAN package check completed with 0 errors, 0 warnings, and 0 notes after qualifying one internal namespace call. |
 | 2026-08-27 | Completed the S3b adapter acceptance matrix in test-only follow-up `0642b5f`: declared-order two-action staging, an intentional all-`NULL` plan, and an invalid member result are now explicit regressions. The focused file passed 120 assertions and the full Core suite passed 958, with only the existing intentional warning and four environment/legacy skips. |
+| 2026-08-27 | Landed S3c in fluxCore `18ec1fb`: raw trajectory rows now carry paired static group and deterministic run-local activation ids; accepted plan metadata remains raw-only; eligible, explicit-`NULL`, and opted-in veto leaves retain canonical member order without a synthetic parent row; and group-only activations capture true before/after state. Independent review found no blocker. The focused gate passed 461 assertions, the full suite passed 1,025, and the non-CRAN package check completed with 0 errors, 0 warnings, and 0 notes. |
+| 2026-08-27 | Landed the narrow Tutorial 01 Q2/S2 terminology correction in root `5f53f43`: `realized_event` is now explained as the trigger event, displayed output says “Action selected,” and the prose no longer treats a policy selection or post-trigger state as proof of later action realization or a complete RL next-state transition. A fresh fatal render passed. |
