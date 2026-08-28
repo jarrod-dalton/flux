@@ -82,10 +82,10 @@ DecisionPoint(
 **Implementation boundary.** This is a formal-argument reorder plus compatibility tests and
 generated documentation. It does not change pending-action behavior.
 
-- [ ] Restore the v2.0 positions and append `on_pending_action`.
-- [ ] Add a fully positional v2.0 regression test.
-- [ ] Confirm named 2.1 calls and the default `"warn"` remain unchanged.
-- [ ] Regenerate and inspect the public documentation.
+- [x] Restore the v2.0 positions and append `on_pending_action`.
+- [x] Add a fully positional v2.0 regression test.
+- [x] Confirm named 2.1 calls and the default `"warn"` remain unchanged.
+- [x] Regenerate and inspect the public documentation.
 
 ### A2 — Treat `ActionEvent$decision_point_id` as provenance
 
@@ -115,9 +115,9 @@ valid id.
 **Implementation boundary.** Add one ownership-integrity check to policy dispatch and
 correct the misleading documentation. Do not add cross-decision routing.
 
-- [ ] Enforce fill, exact-match, and mismatch behavior.
-- [ ] Test all three paths and confirm handler/pending ownership remains unchanged.
-- [ ] Remove “override” language while retaining manual construction.
+- [x] Enforce fill, exact-match, and mismatch behavior.
+- [x] Test all three paths and confirm handler/pending ownership remains unchanged.
+- [x] Remove “override” language while retaining manual construction.
 
 ---
 
@@ -346,11 +346,11 @@ The focused Core fixture should remain minimal and deterministic. Tutorial 03 mu
 the behavior into the shared urban food-delivery model rather than copying the abstract unit
 fixture into scientist-facing documentation.
 
-- [ ] Rework the pending-mode fixture so exactly two proposals compete and the retained
+- [x] Rework the pending-mode fixture so exactly two proposals compete and the retained
       action has an opportunity to realize.
-- [ ] Assert warning/error behavior, exactly one realized action for successful runs, and
+- [x] Assert warning/error behavior, exactly one realized action for successful runs, and
       its expected event time for default `"warn"`, `"replace"`, and `"keep"`.
-- [ ] Run the focused action-lifecycle tests without modifying runtime code; if an assertion
+- [x] Run the focused action-lifecycle tests without modifying runtime code; if an assertion
       fails, stop and reopen the contract discussion before changing the engine.
 
 ### Q2 — Name policy selection accurately in trajectory output
@@ -483,16 +483,16 @@ while candidate state/history is retained. Benchmark sparse, wide-patch, and lon
 cases before merging and stop for review if a consistent material regression appears.
 Repeated event-table `rbind()` growth is a separate scaling concern and is not part of Q3.
 
-- [ ] Implement candidate-then-commit ordering without deep-copying the Entity or adding a
+- [x] Implement candidate-then-commit ordering without deep-copying the Entity or adding a
       second patch-validation pass.
-- [ ] Prove complete non-mutation for invalid single-field and later-failing multi-field
+- [x] Prove complete non-mutation for invalid single-field and later-failing multi-field
       patches, plus malformed, unnamed, duplicate-name, unknown-variable, coercion-error,
       and validation-error patches.
-- [ ] Confirm successful multi-field and `changes = NULL` updates retain their existing
+- [x] Confirm successful multi-field and `changes = NULL` updates retain their existing
       event, clock, state, and history behavior.
-- [ ] Add one Engine integration regression showing that a rejected transition patch leaves
+- [x] Add one Engine integration regression showing that a rejected transition patch leaves
       no phantom event on the caller-owned Entity.
-- [ ] Compare current and candidate successful paths across sparse, wide-patch, and
+- [x] Compare current and candidate successful paths across sparse, wide-patch, and
       long-history workloads; record the benchmark shape and result before merging.
 
 #### Draft fluxCore issue
@@ -1378,17 +1378,17 @@ Malformed policy configuration, a non-`ActionEvent` policy result, a disallowed 
 implicit parts of this bug fix. They require separate review rather than inheriting Q8's
 answer without discussion.
 
-- [ ] Replace the condition catch-and-veto path with contextual error propagation and
+- [x] Replace the condition catch-and-veto path with contextual error propagation and
       enforce a length-one, non-`NA` logical result.
-- [ ] Replace the policy catch-and-`NULL` path with contextual error propagation while
+- [x] Replace the policy catch-and-`NULL` path with contextual error propagation while
       preserving an explicitly returned `NULL`.
-- [ ] Replace the action-handler catch-and-`NULL` path with contextual error propagation
+- [x] Replace the action-handler catch-and-`NULL` path with contextual error propagation
       while preserving an explicitly returned `NULL`.
-- [ ] Add one regression for each thrown callback error, including the Entity/event state
+- [x] Add one regression for each thrown callback error, including the Entity/event state
       visible after the error and the original error message.
-- [ ] Retain positive tests for intentional condition `FALSE`, policy `NULL`, and handler
+- [x] Retain positive tests for intentional condition `FALSE`, policy `NULL`, and handler
       `NULL`, so fail-fast does not erase supported no-decision/no-effect behavior.
-- [ ] Add condition-shape tests for length zero, length greater than one, `NA`, and
+- [x] Add condition-shape tests for length zero, length greater than one, `NA`, and
       non-logical values.
 - [ ] Confirm fluxForecast's warning suppression does not hide the newly propagated errors.
 - [ ] Capture the callback-guidance changes and known affected fluxDesign surfaces in E1's
@@ -1397,7 +1397,7 @@ answer without discussion.
       focused Q8 Core implementation.
 - [ ] Document the partial-progress boundary: trigger state can already be committed when a
       condition or policy fails, but a failing action handler does not realize its action.
-- [ ] Keep neighboring invalid-policy, disallowed-action, observation, and trigger-shape
+- [x] Keep neighboring invalid-policy, disallowed-action, observation, and trigger-shape
       contracts outside Q8 pending their own review.
 
 #### Filed fluxCore issue
@@ -2112,3 +2112,6 @@ being resolved by silent scope expansion.
 | 2026-08-27 | Closed the remaining S3 semantic review: ambiguous direct/group or overlapping-group activation is detected from raw triggers and errors before transition or Entity mutation; otherwise Core applies one transition, freezes all ordinary/group member eligibility in canonical condition order, and only then begins ordinary-first/group-second policy dispatch. |
 | 2026-08-27 | Reviewed and posted the exact issue #12 clarification and urban-delivery contract example. The approved text remains embedded in this plan; the temporary standalone posting file was removed after successful posting. |
 | 2026-08-27 | Closed the plan-design phase. All proposed contract findings were approved, deferred, or bounded; S3 was admitted through explicit gates; E1 records the later fluxDesign handoff; and the remaining unchecked items are execution, documentation, verification, and release work rather than unresolved design questions. |
+| 2026-08-27 | Landed A1 (`afe7df1`), A2 (`3f29d61`), and Q1 (`eaaab13`) as separate tested fluxCore patches: positional compatibility restored, action provenance enforced, and all four pending modes observed through realization. |
+| 2026-08-27 | Landed Q8 (`3b7009c`) with fail-fast condition, policy, and action-handler errors; 139 focused and adjacent assertions passed without warnings or failures. |
+| 2026-08-27 | Landed Q3 (`8f6aa53`) with candidate-then-commit Entity updates; 184 focused/adjacent assertions passed (2 pre-existing skips). Alternating five-repetition benchmarks measured candidate/current elapsed ratios of 1.013 (20 variables, 3,000 sparse updates), 1.009 (500 variables, 1,000 full-width updates), and 0.996 (3,000-event prefill plus 1,000 sparse updates), so no material successful-path regression was observed. |
