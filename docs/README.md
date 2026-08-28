@@ -13,7 +13,3 @@ Historical prompt corpus from early single-thread ChatGPT workflows is retained
 for reference under:
 
 - `archive/chatgpt_prompts/`
-
-Maintainer operational notes:
-
-- See `docs/current/AGENT_CONTEXT.md` for current assistant/session context.

@@ -1,5 +1,8 @@
 .DS_Store
 
+# Local maintainer/session context
+docs/current/AGENT_CONTEXT.md
+
 # Generated ecosystem test artifacts
 tests_ecosystem/reports/*
 !tests_ecosystem/reports/.gitkeep

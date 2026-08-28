@@ -11,15 +11,15 @@ This super-repo coordinates the package stack, ecosystem-level testing, and cros
 
 ---
 
-### What's new in v2.0.0
+### Latest coordinated release: v2.0.0
 
-flux v2.0.0 makes decisions a formal part of how models are written. You declare a **decision point** on your schema — a checkpoint where the engine pauses, asks a policy function what to do, and logs the full record of what was observed, proposed, and realized. That log is your decision audit trail. You can pull it out as a data frame at the end of any run.
+flux v2.0.0 introduced formal decision points, typed simulation contexts, global
+parameter draws, and validated model assembly while retaining the irregular-time
+event engine at the ecosystem's core.
 
-Parameter uncertainty is cleaner too. Your bundle declares a single function that draws `n` parameter sets, and the engine handles the crossing — every entity runs under every draw, fully tracked. No bespoke scaffolding.
-
-Bundle callbacks can opt into typed objects (`ParamContext`, `SimContext`, `RuntimeContext`) that make their contracts explicit. And `load_model()` provides a validated assembly step for wiring schema, bundle, policy, and runtime config together safely.
-
-For full details, see the [v2.0.0 release announcement](./docs/release_announcements/v2.0.0.md) — or jump straight into [Tutorial 01](./tutorials/01_core_engine_scaffold.md) (which covers the engine, parameter draws, and refresh rules) and [Tutorial 03](./tutorials/03_decisions_policy.md) (decisions and policy).
+See the [v2.0.0 release announcement](./docs/release_announcements/v2.0.0.md),
+[Tutorial 01](./tutorials/01_core_engine_scaffold.md) for the engine and parameter
+draws, or [Tutorial 03](./tutorials/03_decisions_policy.md) for decisions and policy.
 
 ---
 
