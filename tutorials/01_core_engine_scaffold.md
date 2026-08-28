@@ -756,7 +756,8 @@ firing. Each record answers four questions:
 1. **When did the decision point fire?** (`t`, `decision_point_id`)
 2. **What did the policy observe?** (`observation` — the state snapshot presented to the policy)
 3. **What did the policy propose?** (`proposed_actions`)
-4. **What actually happened?** (`realized_event`, `state_before`, `state_after`)
+4. **Which realized event opened the decision, and how did it change state?**
+   (`realized_event` — the trigger event — plus `state_before` and `state_after`)
 
 
 ``` r
@@ -772,13 +773,20 @@ cat("Decision point:", tr1$decision_point_id, "\n")
 #> Decision point: post_dispatch
 cat("Trigger event: ", tr1$realized_event$event_type, "\n")
 #> Trigger event:  dispatch
-cat("Action taken:  ", tr1$selected_action$action_type, "\n")
-#> Action taken:   stand_down
+cat("Action selected:", tr1$selected_action$action_type, "\n")
+#> Action selected: stand_down
 cat("Battery before:", tr1$state_before$battery_pct, "\n")
 #> Battery before: 100
 cat("Battery after: ", tr1$state_after$battery_pct, "\n")
 #> Battery after:  93.03451
 ```
+
+Here, `realized_event` is the trigger event whose realization opened the
+decision; it is not the selected action. `selected_action` records what the
+policy selected before the engine resolves any action already pending for that
+decision point. A selection is therefore not proof that the action was staged
+or later realized. Consult the entity's event history for evidence that an
+action event actually realized.
 
 
 ``` r
@@ -818,9 +826,10 @@ head(tr_df, 10)
 Notice the pattern: the policy switches to "surge" as the battery drops below
 60%, then stays in surge mode for remaining deliveries (accepting higher drain
 to complete faster). Because `TrajectoryRecord` captures state before and after
-each decision, you can reconstruct exactly what the policy saw and why it acted
-— which is the foundation for policy comparison, counterfactual analysis, and RL
-reward computation in `fluxSim`.
+each trigger event, you can reconstruct what the policy saw and which action it
+selected at each consultation. These decision-time records are a foundation for
+policy comparison, counterfactual analysis, and RL reward computation in
+`fluxSim`; analyses of later action realization must also use event history.
 
 ### What trajectory records enable downstream
 
@@ -831,11 +840,15 @@ rest of the ecosystem builds on:
   with the same seed; diff the `trajectory_records` to see where they diverge.
 - **Counterfactual analysis**: fix the seed and parameter draw; vary only the
   policy; compare outcomes.
-- **RL training** (`fluxSim`): the `(observation, action, reward,
-  next_state)` tuple for each record becomes a training transition. The reward
-  function is defined externally and applied to the record.
+- **RL training** (`fluxSim`): a record supplies the observation, policy
+  selection, and post-trigger state for decision-time analysis. It does not by
+  itself supply an RL `next_state` after the selected action realizes; analyses
+  that need that later state must align the record with event history. The
+  reward function is defined externally.
 - **Audit and explainability**: for any individual run, you can reconstruct the
-  full decision history and ask "why did the simulation do that?"
+  recorded policy consultations and ask "why did the policy select that
+  action?" Consult event history to determine which action events later
+  realized.
 
 
 ## Scaling up: batch runs across a cohort
