@@ -7,8 +7,8 @@ alignment are landed, and the coordinated source-stack ecosystem battery passed 
 **Target:** Complete the approved Core corrections, bounded grouped-decision extension,
 documentation, ecosystem handoff, and release verification for fluxCore 2.1.  
 **Historical parent:** [PLAN_fluxCore_issue11_action_lifecycle.md](./PLAN_fluxCore_issue11_action_lifecycle.md)  
-**Current fluxCore checkpoint:** `b32a6ff` (`Version: 2.1.0`)
-**Current super-repo base for this status update:** `2eb4cce`
+**Current fluxCore checkpoint:** `d4f885c` (`Version: 2.1.0`)
+**Current super-repo base for this status update:** `b55a0cb`
 
 ---
 
@@ -1339,25 +1339,28 @@ uses the wrong seed or collapses supposedly independent replicates.
 ### Q8 — Fail fast when decision callbacks throw
 
 **Status:** Complete in fluxCore `3b7009c`, with the downstream decision-callback regression
-corrected in fluxForecast `1dfee1e`; filed as
+corrected in fluxForecast `1dfee1e` and broad run-warning suppression removed in
+fluxForecast `41a4f5f`; filed as
 [fluxCore issue #13](https://github.com/jarrod-dalton/fluxCore/issues/13).
 A thrown condition, policy, or action-handler error must terminate the run with callback
 context. Intentional `FALSE` and `NULL` returns remain valid model outcomes. Track the
 correction as a fluxCore bug because the current behavior can make a failed callback
 indistinguishable from a successful decision.
 
-Current Core behavior catches all three errors and assigns each one a legitimate model
+Pre-fix Core behavior caught all three errors and assigned each one a legitimate model
 meaning:
 
-| Callback | Current fallback | Valid outcome it imitates |
+| Callback | Pre-fix fallback | Valid outcome it imitated |
 |---|---|---|
 | `DecisionPoint$condition` | warn, then use `FALSE` | the condition vetoed policy dispatch |
 | `policy$propose_action()` | warn, then use `NULL` | the policy intentionally selected no action |
 | `action_handler` | warn, then use `NULL` | the action realized successfully with no state change |
 
-The last case is especially damaging to auditability: Core records the action event and
-advances the Entity clock even though its handler failed. fluxForecast also wraps cohort
-execution in `suppressWarnings()`, so these warnings may not reach its users.
+The last case was especially damaging to auditability: Core recorded the action event and
+advanced the Entity clock even though its handler failed. At review time, fluxForecast also
+wrapped cohort execution in `suppressWarnings()`, so warnings from adjacent Core contracts
+could not reach its users. The callback failures now propagate as errors, and fluxForecast
+later removed that broad warning suppression rather than hiding intentional Core diagnostics.
 
 **Agreed callback contract.** Core distinguishes an intentional callback result from a
 thrown error:
@@ -1396,6 +1399,9 @@ answer without discussion.
 - [x] Add condition-shape tests for length zero, length greater than one, `NA`, and
       non-logical values.
 - [x] Confirm fluxForecast's warning suppression does not hide the newly propagated errors.
+- [x] Remove fluxForecast's broad cohort warning suppression and prove that the default
+      pending-action replacement warning reaches `forecast()` callers while a valid
+      forecast result is still returned.
 - [x] Capture the callback-guidance changes and known affected fluxDesign surfaces in E1's
       final contract-sync prompt; generated model code should catch errors only when it
       intentionally defines a domain fallback. Do not edit the sibling repo as part of the
@@ -2036,13 +2042,14 @@ of this discussion log. It should:
 - [ ] Obtain explicit review before using the prompt to change fluxDesign skills or other
       sibling-repository artifacts.
 
-### Overnight findings held for maintainer review
+### Overnight findings and resolutions
 
-- `fluxForecast::forecast()` still wraps `run_cohort()` in broad warning suppression. The
-  corrected Q8 regression proves errors propagate, but an intentionally configured
-  `on_pending_action = "warn"` diagnostic can be hidden. Removing suppression naively could
-  flood large cohort runs, so the desired aggregation/surfacing contract needs discussion;
-  no production change was made overnight.
+- Resolved on 2026-08-30: `fluxForecast::forecast()` no longer wraps `run_cohort()` in broad
+  warning suppression (`41a4f5f`). Core diagnostics, including the default pending-action
+  replacement warning, now reach callers; modelers who intentionally replace pending
+  actions can declare `on_pending_action = "replace"`. Cross-worker warning aggregation was
+  not added because it would expand this localized correctness patch into a new diagnostics
+  contract.
 - Package versions, remaining downstream fluxCore dependency floors, root release metadata,
   and release-script defaults were not advanced to 2.1. In particular, the active release
   script still defaults to 2.0.0 and an older duplicate under `resources/scripts/release/`
@@ -2178,3 +2185,5 @@ being resolved by silent scope expansion.
 | 2026-08-27 | Corrected fluxForecast's downstream Q8 evidence in `1dfee1e`: its regression now throws from a real decision condition through `forecast()` and `run_cohort()` rather than from a transition, while production warning suppression remains unchanged. All 74 tests passed and repository-only docs were excluded from the package tarball, restoring package check to 0/0/0. |
 | 2026-08-27 | Aligned fluxModelTemplate's direct callback fixtures with real typed contexts in `d47176e`; the stronger tests exposed no runtime defect. Added the missing documentation for its three exported template entry points and excluded the submodule marker from source builds. All 31 tests passed and package check improved from one warning/one note to 0/0/0. |
 | 2026-08-30 | Completed the coordinated source-stack release battery after installing Core, Prepare, Forecast, Validation, Orchestrate, and ModelTemplate from their candidate sources. Ecosystem tiers 1–3 passed; the six native suites recorded 1,400 passes, one intentional warning, and eight documented skips; all five tutorials rendered under fatal-error handling; and all six packages plus the root meta-package checked 0/0/0. The check gate exposed submodule `.git` build notes in Prepare and Validation, resolved in `e4c2b19` and `a265521` respectively. |
+| 2026-08-30 | Removed fluxForecast's broad `run_cohort()` warning suppression in `41a4f5f` after maintainer review. A direct pending-action regression proves the default Core warning reaches `forecast()` callers and execution still returns a valid forecast; all 76 forecast assertions passed and package check completed 0/0/0. Kept cross-worker aggregation outside this localized contract repair. |
+| 2026-08-30 | Reworded fluxCore's DESCRIPTION in `d4f885c` from the quoted constructor-style `ModelBundle` term to ordinary “bundle of callback functions,” avoiding a likely CRAN spelling note without changing package meaning. The full fluxCore package check completed 0/0/0. |
