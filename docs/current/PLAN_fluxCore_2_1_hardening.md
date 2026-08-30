@@ -2,13 +2,14 @@
 
 **Status:** Approved Core implementation, public documentation, and localized downstream
 alignment are landed, and the coordinated source-stack ecosystem battery passed on
-2026-08-30. Release metadata and the separately reviewed fluxDesign handoff remain open.
+2026-08-30. Release metadata is finalized and publication remains open. The fluxDesign handoff
+prompt was reviewed and approved for use in its separate environment.
 **Created:** 2026-08-26  
 **Target:** Complete the approved Core corrections, bounded grouped-decision extension,
 documentation, ecosystem handoff, and release verification for fluxCore 2.1.  
 **Historical parent:** [PLAN_fluxCore_issue11_action_lifecycle.md](./PLAN_fluxCore_issue11_action_lifecycle.md)  
-**Current fluxCore checkpoint:** `d4f885c` (`Version: 2.1.0`)
-**Current super-repo base for this status update:** `b55a0cb`
+**Current fluxCore checkpoint:** `b6f0b49` (`Version: 2.1.0`)
+**Current super-repo base for this status update:** `b7ab3aa`
 
 ---
 
@@ -1663,9 +1664,9 @@ should depend on its contents.
 
 ### S3 — Add grouped decision points as a bounded 2.1 extension
 
-**Status:** S3a–S3d implementation, Core verification, and public documentation are landed.
-The coordinated source-stack ecosystem battery remains a maintainer-review gate. This is
-justified by a real modeling gap—one
+**Status:** S3a–S3d implementation, Core verification, public documentation, and the
+coordinated source-stack ecosystem battery are complete. This is justified by a real
+modeling gap—one
 policy consultation sometimes needs to coordinate selections across several existing
 decision points—not by the desire to add a headline feature. Defer S3 if implementation
 expands into general workflows, rollback, joint action realization, or comprehensive action
@@ -1985,11 +1986,11 @@ understand the scientific behavior.
 - [x] Run focused grouped-decision tests, the complete pre-existing no-group suite, package
       check, and all five tutorials with fatal errors.
 - [x] Run the coordinated source-stack ecosystem battery after maintainer review of the
-      overnight patches. On 2026-08-30, all six candidate sources were installed in
-      dependency order; ecosystem tiers 1–3 passed; the six package suites recorded 1,400
+      overnight patches. On 2026-08-30, the final version-aligned 2.1 sources were installed
+      in dependency order; ecosystem tiers 1–3 passed; the six package suites recorded 1,402
       passing assertions, one intentional warning, and eight documented skips; all five
       tutorials rendered fatally; and all six subpackages plus the root meta-package checked
-      with 0 errors, 0 warnings, and 0 notes. The check gate also found and corrected the
+      with 0 errors, 0 warnings, and 0 notes. An earlier pass also found and corrected the
       submodule `.git` build-note defect in fluxPrepare (`e4c2b19`) and fluxValidation
       (`a265521`).
 
@@ -2000,10 +2001,10 @@ realization/effects; sequencing, priority, barriers, workflows, and trigger-even
 
 ### E1 — Prepare the fluxDesign 2.1 contract-sync handoff prompt
 
-**Status:** Drafted from the landed Core/runtime/tutorial surface and ready for explicit
-maintainer review. The artifact is
+**Status:** Reviewed and approved for handoff from the landed Core/runtime/tutorial surface.
+The artifact is
 `docs/current/PROMPT_fluxDesign_fluxCore_2_1_contract_sync.md`; applying it in the sibling
-fluxDesign repository is a separately reviewed follow-up.
+fluxDesign repository remains a separate-environment follow-up.
 
 **Evidence.** fluxDesign skills, prompts, schemas, examples, review guidance, and generated
 package behavior encode fluxCore contracts. The approved 2.1 work changes or clarifies
@@ -2039,8 +2040,9 @@ of this discussion log. It should:
       required changes, exclusions, and acceptance checks.
 - [x] Review the prompt against the final Core diff, NEWS, Tutorial 03, package checks, and
       issue outcomes; remove provisional syntax and any contract that did not land.
-- [ ] Obtain explicit review before using the prompt to change fluxDesign skills or other
-      sibling-repository artifacts.
+- [x] Obtain explicit review before using the prompt to change fluxDesign skills or other
+      sibling-repository artifacts. The maintainer approved the prompt for handoff on
+      2026-08-30; application remains outside this repository and release task.
 
 ### Overnight findings and resolutions
 
@@ -2050,10 +2052,10 @@ of this discussion log. It should:
   actions can declare `on_pending_action = "replace"`. Cross-worker warning aggregation was
   not added because it would expand this localized correctness patch into a new diagnostics
   contract.
-- Package versions, remaining downstream fluxCore dependency floors, root release metadata,
-  and release-script defaults were not advanced to 2.1. In particular, the active release
-  script still defaults to 2.0.0 and an older duplicate under `resources/scripts/release/`
-  remains stale. These belong to the coordinated release pass, not an implementation patch.
+- Resolved during the 2026-08-30 release-preparation pass: package versions, downstream
+  fluxCore dependency floors, root release metadata, and the canonical release script were
+  advanced to 2.1. The older script under `resources/scripts/release/` now delegates to the
+  canonical entry point rather than maintaining stale release logic.
 - Resolved on 2026-08-30: the full source-stack ecosystem battery passed after installing
   all candidate packages in dependency order. The three-tier harness, fatal tutorial render,
   all package checks, and the root meta-package check are now complete.
@@ -2077,9 +2079,9 @@ S1 and S2 are deliberately deferred and must not enter through implementation dr
 | Q5 | Parameter-draw shape and identity | Documented `ParamContext` draws are wrapped inside another context; original identity/provenance are displaced and the parameter tutorial errors. Reproduced. | Complete in Core/Forecast and rendered tutorial path |
 | Q6 | Cohort run identity | Cohort index and run-list ids vary, but callback contexts and trajectory records all default to `run_1`; flattening also drops the join key. Reproduced. | Complete: batch id propagated and retained in output |
 | Q7 | RNG ownership | A seed stored on a loaded Engine overrides cohort and streaming seeds, collapsing nominally distinct replicates. Reproduced. | Complete: one outer execution owner and downstream regressions |
-| Q8 | Callback failure semantics | Condition, policy, and action-handler errors can become veto, no-action, or realized no-effect behavior through warnings. Reproduced. | Complete in Core; [issue #13 filed](https://github.com/jarrod-dalton/fluxCore/issues/13); fluxDesign handoff drafted |
+| Q8 | Callback failure semantics | Condition, policy, and action-handler errors can become veto, no-action, or realized no-effect behavior through warnings. Reproduced. | Complete in Core; [issue #13 filed](https://github.com/jarrod-dalton/fluxCore/issues/13); fluxDesign handoff approved |
 | Q9 | Tutorial verification | Tutorial 01 has one local capacity inconsistency plus the Q5 context defect; the renderer embeds both and exits successfully. | Complete: narrow repair and fatal, isolated five-tutorial render |
-| Q10 | Release-facing entry points | Root release metadata is currently accurate at 2.0.0, but its blurb can be tighter; fluxCore README contracts are stale and local maintainer context is mistakenly tracked/linked. | Complete: focused README refresh and local-context cleanup |
+| Q10 | Release-facing entry points | At review time, root release metadata was accurate at 2.0.0, but its blurb could be tighter; fluxCore README contracts were stale and local maintainer context was mistakenly tracked/linked. | Complete: focused README refresh, local-context cleanup, and v2.1 release alignment |
 | S1 | `compose_bundles()` v2 contract | The helper has broader callback and ownership drift than a safe issue-11 follow-up. | Deferred to a separate design |
 | S2 | Full proposal-to-realization lineage | Would require new ids/disposition fields and a larger trajectory contract. | Deferred |
 | S3 | Grouped decision points | A trigger-bearing group coordinates one policy plan across existing leaf decisions while actions realize independently. | Complete through S3d and coordinated ecosystem battery |
@@ -2187,3 +2189,5 @@ being resolved by silent scope expansion.
 | 2026-08-30 | Completed the coordinated source-stack release battery after installing Core, Prepare, Forecast, Validation, Orchestrate, and ModelTemplate from their candidate sources. Ecosystem tiers 1–3 passed; the six native suites recorded 1,400 passes, one intentional warning, and eight documented skips; all five tutorials rendered under fatal-error handling; and all six packages plus the root meta-package checked 0/0/0. The check gate exposed submodule `.git` build notes in Prepare and Validation, resolved in `e4c2b19` and `a265521` respectively. |
 | 2026-08-30 | Removed fluxForecast's broad `run_cohort()` warning suppression in `41a4f5f` after maintainer review. A direct pending-action regression proves the default Core warning reaches `forecast()` callers and execution still returns a valid forecast; all 76 forecast assertions passed and package check completed 0/0/0. Kept cross-worker aggregation outside this localized contract repair. |
 | 2026-08-30 | Reworded fluxCore's DESCRIPTION in `d4f885c` from the quoted constructor-style `ModelBundle` term to ordinary “bundle of callback functions,” avoiding a likely CRAN spelling note without changing package meaning. The full fluxCore package check completed 0/0/0. |
+| 2026-08-30 | The maintainer reviewed and approved `PROMPT_fluxDesign_fluxCore_2_1_contract_sync.md` for use in the separate fluxDesign environment. No fluxDesign files were modified in this repository or release pass. |
+| 2026-08-30 | Finalized the version-aligned package candidates in fluxCore `b6f0b49`, fluxPrepare `2ccaa98`, fluxForecast `aa42732`, fluxValidation `57e375a`, fluxOrchestrate `8e1be89`, and fluxModelTemplate `2993662`. After installing those sources in dependency order, the exact-candidate ecosystem tiers passed with 1,402 assertions, one intentional warning, and eight documented skips; all five tutorials rendered fatally; and every subpackage plus the 2.1.0 root meta-package checked 0/0/0. Evidence: `tests_ecosystem/reports/ecosystem_20260830_093958_753.txt`. |

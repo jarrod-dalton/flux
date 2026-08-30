@@ -16,19 +16,19 @@ integration behavior across repos in realistic install/load orders.
 - Emits `devtools::test()`-style summaries (`FAIL/WARN/SKIP/PASS`) per package.
 - Useful before coordinated version bumps/releases.
 
-3. Tier 3 (`run_tier3_ascvd_demo.R`): realistic model-driven integration
-- Leverages fluxASCVD example data and prep workflow as a higher-fidelity
-  ecosystem scenario.
+3. Tier 3 (`run_tier3_delivery_demo.R`): realistic model-driven integration
+- Runs the shared urban food-delivery model through the preparation,
+  simulation, forecasting, and validation workflow.
 - Intended for release gating and regression detection.
 
 ## Running
 
-From `/Users/daltonj/patientSim`:
+From the flux super-repo root:
 
 ```bash
 Rscript tests_ecosystem/run_tier1_smoke.R
 Rscript tests_ecosystem/run_tier2_package_tests.R
-Rscript tests_ecosystem/run_tier3_ascvd_demo.R
+Rscript tests_ecosystem/run_tier3_delivery_demo.R
 Rscript tests_ecosystem/run_all.R
 ```
 
@@ -43,7 +43,6 @@ make ecosystem-all
 
 Notes:
 - These scripts assume local package directories are present under `subrepos/` in this parent folder.
-- Tier 3 intentionally skips if `fluxASCVD` internals are unavailable.
 - Each run writes logs/reports under `tests_ecosystem/reports/`.
 - Any `make ecosystem-*` invocation produces one consolidated `ecosystem_*.txt` report file.
 - Tier 1 and Tier 3 print step-by-step checks with explicit pass/fail markers.

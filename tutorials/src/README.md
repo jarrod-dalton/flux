@@ -6,10 +6,10 @@ GitHub-viewable Markdown (`.md`) files in the parent `tutorials/` directory.
 | Source | Renders to |
 |---|---|
 | `01_core_engine_scaffold.Rmd` | `../01_core_engine_scaffold.md` |
-| `03_validation_observed_grids_and_masks.Rmd` | `../03_validation_observed_grids_and_masks.md` |
-| `04_validation_event_risk_apples_to_apples.Rmd` | `../04_validation_event_risk_apples_to_apples.md` |
-| `06_ascvd_ecosystem_welcome.R` | `../06_ascvd_ecosystem_welcome.md` |
-| `07_ascvd_prepare_ttv.R` | `../07_ascvd_prepare_ttv.md` |
+| `02_cohort_forecast.Rmd` | `../02_cohort_forecast.md` |
+| `03_decisions_policy.Rmd` | `../03_decisions_policy.md` |
+| `04_data_preparation_and_model_training.Rmd` | `../04_data_preparation_and_model_training.md` |
+| `05_validation.Rmd` | `../05_validation.md` |
 
 To regenerate all rendered tutorials:
 
@@ -18,5 +18,4 @@ cd <repo-root>
 Rscript tutorials/render_for_github.R
 ```
 
-Files `02_prepare_ttv.md`, `05_orchestration_framework.md`, and
-`08_end_to_end_v1_path.md` are hand-authored Markdown with no source counterpart.
+Tutorial `00_start_here.md` is hand-authored Markdown with no source counterpart.

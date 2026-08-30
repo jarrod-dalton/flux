@@ -4,6 +4,7 @@
 ^subrepos$
 ^tests_ecosystem$
 ^resources$
+^scripts$
 ^docs$
 ^tutorials$
 ^Makefile$

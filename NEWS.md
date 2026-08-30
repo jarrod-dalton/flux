@@ -1,5 +1,17 @@
 # flux ecosystem news
 
+## 2.1.0
+
+- Hardened fluxCore's decision/action lifecycle, callback failures, model-clock
+  agreement, parameter-draw boundary, run identity, and RNG ownership.
+- Added grouped decision points for one coordinated policy consultation across
+  related decisions while preserving independent action timing and realization.
+- Aligned fluxForecast, fluxOrchestrate, and fluxModelTemplate with the corrected
+  Core contracts; advanced fluxPrepare and fluxValidation on the coordinated
+  2.1 release line.
+- Refreshed the progressive urban-delivery tutorials, including a comprehensive
+  decisions, actions, and policy walkthrough in Tutorial 03.
+
 ## 1.11.0
 
 - Coordinated ecosystem release: all five production packages (fluxCore,

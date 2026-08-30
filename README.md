@@ -11,15 +11,19 @@ This super-repo coordinates the package stack, ecosystem-level testing, and cros
 
 ---
 
-### Latest coordinated release: v2.0.0
+### Latest coordinated release: v2.1.0
 
-flux v2.0.0 introduced formal decision points, typed simulation contexts, global
-parameter draws, and validated model assembly while retaining the irregular-time
-event engine at the ecosystem's core.
+flux v2.1.0 hardens decision and action handling across the ecosystem, with
+clearer pending-action behavior, fail-fast callbacks, consistent cohort run
+identity, reproducible seeding, and stricter model-clock and parameter
+contracts. It also adds grouped decision points, allowing related decisions to
+share one policy consultation while their staged actions retain independent
+timing.
 
-See the [v2.0.0 release announcement](./docs/release_announcements/v2.0.0.md),
-[Tutorial 01](./tutorials/01_core_engine_scaffold.md) for the engine and parameter
-draws, or [Tutorial 03](./tutorials/03_decisions_policy.md) for decisions and policy.
+See the [v2.1.0 release announcement](./docs/release_announcements/v2.1.0.md),
+[Tutorial 03](./tutorials/03_decisions_policy.md) for decision/action lifecycles
+and grouped decisions, or [Tutorial 01](./tutorials/01_core_engine_scaffold.md)
+for the engine and parameter draws.
 
 ---
 
@@ -48,7 +52,7 @@ This meta-package installs:
 - `fluxValidation`
 - `fluxOrchestrate`
 
-Reference/demo packages remain separate:
+Reference/demo packages remain separate from meta-package installation:
 
 - `fluxASCVD`
 - `fluxModelTemplate`
@@ -76,7 +80,6 @@ Reference/demo packages remain separate:
   - `fluxForecast`
   - `fluxValidation`
   - `fluxOrchestrate`
-  - `fluxASCVD`
   - `fluxModelTemplate`
 
 ## Ecosystem map
@@ -113,7 +116,7 @@ make release-dry
 
 ## Release line
 
-- Release line: `v2.0.0`
+- Release line: `v2.1.0`
 - See the [GitHub releases page](https://github.com/jarrod-dalton/flux/releases) for full history.
 
 ## Book scaffold
