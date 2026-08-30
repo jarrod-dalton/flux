@@ -193,8 +193,8 @@ head(ops$events) |> kable(digits = 2)
 
 ``` r
 table(ops$events$event_type)
-#> 
-#> delivery_completed     dispatch_check 
+#>
+#> delivery_completed     dispatch_check
 #>               3013               2991
 ```
 
@@ -255,8 +255,8 @@ courier_003's Tuesday shift.
 splits <- generate_splits(ops$couriers, train_frac = 0.6, test_frac = 0.2,
                           seed = 123)
 table(splits$split)
-#> 
-#>       test      train validation 
+#>
+#>       test      train validation
 #>         20         60         20
 ```
 
@@ -740,21 +740,21 @@ delivery_fit <- flexsurvreg(
 
 delivery_fit
 #> Call:
-#> flexsurvreg(formula = Surv(deltat, event_occurred) ~ battery_pct + 
+#> flexsurvreg(formula = Surv(deltat, event_occurred) ~ battery_pct +
 #>     temperature_c + precip_rain, data = delivery_mod_train, dist = "exponential")
-#> 
-#> Estimates: 
-#>                data mean  est      L95%     U95%     se       exp(est)  L95%   
+#>
+#> Estimates:
+#>                data mean  est      L95%     U95%     se       exp(est)  L95%
 #> rate                NA     6.4790   0.4863  86.3153   8.5599       NA        NA
 #> battery_pct    92.1073    -0.0369  -0.0609  -0.0129   0.0122   0.9638    0.9409
 #> temperature_c  -2.4116    -0.3915  -0.9022   0.1192   0.2606   0.6760    0.4057
 #> precip_rain     0.0474    -1.2799  -3.4237   0.8638   1.0937   0.2781    0.0326
-#>                U95%   
+#>                U95%
 #> rate                NA
 #> battery_pct     0.9872
 #> temperature_c   1.1266
 #> precip_rain     2.3721
-#> 
+#>
 #> N = 232,  Events: 49,  Censored: 183
 #> Total time at risk: 99.08358
 #> Log-likelihood = -77.42814, df = 4
@@ -779,28 +779,28 @@ battery_fit <- lm(
 )
 
 summary(battery_fit)
-#> 
+#>
 #> Call:
-#> lm(formula = outcome_battery_pct ~ battery_pct + temperature_c + 
+#> lm(formula = outcome_battery_pct ~ battery_pct + temperature_c +
 #>     deltat + temperature_c:deltat, data = battery_mod_train)
-#> 
+#>
 #> Residuals:
-#>     Min      1Q  Median      3Q     Max 
-#> -35.535  -0.148   1.068   2.354  12.372 
-#> 
+#>     Min      1Q  Median      3Q     Max
+#> -35.535  -0.148   1.068   2.354  12.372
+#>
 #> Coefficients:
-#>                      Estimate Std. Error t value Pr(>|t|)    
-#> (Intercept)           0.59931    0.91937   0.652    0.515    
+#>                      Estimate Std. Error t value Pr(>|t|)
+#> (Intercept)           0.59931    0.91937   0.652    0.515
 #> battery_pct           0.98714    0.01300  75.913   <2e-16 ***
-#> temperature_c        -0.01699    0.18878  -0.090    0.928    
+#> temperature_c        -0.01699    0.18878  -0.090    0.928
 #> deltat               -5.39325    0.63448  -8.500   <2e-16 ***
-#> temperature_c:deltat  0.27136    0.30408   0.892    0.372    
+#> temperature_c:deltat  0.27136    0.30408   0.892    0.372
 #> ---
 #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-#> 
+#>
 #> Residual standard error: 5.321 on 679 degrees of freedom
 #>   (60 observations deleted due to missingness)
-#> Multiple R-squared:  0.936,	Adjusted R-squared:  0.9357 
+#> Multiple R-squared:  0.936,	Adjusted R-squared:  0.9357
 #> F-statistic:  2484 on 4 and 679 DF,  p-value: < 2.2e-16
 ```
 

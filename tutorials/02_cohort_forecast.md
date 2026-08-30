@@ -66,7 +66,7 @@ Quick sanity check — the fleet's starting battery distribution:
 ``` r
 batteries <- map_dbl(couriers, ~ .x$current$battery_pct)
 summary(batteries)
-#>    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#>    Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
 #>   50.27   61.88   76.06   74.95   86.46   98.59
 ```
 
@@ -126,7 +126,7 @@ out_single$entity$state(c("battery_pct", "dispatch_mode"))
 #> <flux_state>
 #> $battery_pct
 #> [1] 45.52351
-#> 
+#>
 #> $dispatch_mode
 #> [1] "idle"
 ```
@@ -193,7 +193,7 @@ knitr::kable(head(cohort_result$index))
 # Deliveries per courier per simulated shift
 delivery_counts <- map_int(cohort_result$runs, ~ sum(.x$events$event_type == "delivery_completed"))
 summary(delivery_counts)
-#>    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#>    Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
 #>   0.000   3.000   5.000   4.852   6.000  12.000
 ```
 
