@@ -1,15 +1,15 @@
 # Plan — fluxCore 2.1 Contract Hardening and Completion
 
-**Status:** Approved Core implementation, public documentation, and localized downstream
-alignment are landed, and the coordinated source-stack ecosystem battery passed on
-2026-08-30. Release metadata is finalized and publication remains open. The fluxDesign handoff
-prompt was reviewed and approved for use in its separate environment.
+**Status:** Complete for flux 2.1.0. Core implementation, public documentation, localized
+downstream alignment, exact-candidate verification, and the coordinated root-plus-six GitHub
+release were completed on 2026-08-30. The fluxDesign handoff prompt was reviewed and approved
+for use in its separate environment.
 **Created:** 2026-08-26  
 **Target:** Complete the approved Core corrections, bounded grouped-decision extension,
 documentation, ecosystem handoff, and release verification for fluxCore 2.1.  
 **Historical parent:** [PLAN_fluxCore_issue11_action_lifecycle.md](./PLAN_fluxCore_issue11_action_lifecycle.md)  
 **Current fluxCore checkpoint:** `b6f0b49` (`Version: 2.1.0`)
-**Current super-repo base for this status update:** `b7ab3aa`
+**Current super-repo release checkpoint:** `50df5e9` (`v2.1.0`)
 
 ---
 
@@ -1341,7 +1341,7 @@ uses the wrong seed or collapses supposedly independent replicates.
 
 **Status:** Complete in fluxCore `3b7009c`, with the downstream decision-callback regression
 corrected in fluxForecast `1dfee1e` and broad run-warning suppression removed in
-fluxForecast `41a4f5f`; filed as
+fluxForecast `41a4f5f`; tracked and closed with v2.1.0 as
 [fluxCore issue #13](https://github.com/jarrod-dalton/fluxCore/issues/13).
 A thrown condition, policy, or action-handler error must terminate the run with callback
 context. Intentional `FALSE` and `NULL` returns remain valid model outcomes. Track the
@@ -1417,7 +1417,8 @@ answer without discussion.
 **Title:** `Decision callback errors are downgraded to valid-looking model outcomes`
 
 - [x] Filed as [fluxCore issue #13](https://github.com/jarrod-dalton/fluxCore/issues/13)
-      on 2026-08-27 after review and action-time confirmation.
+      on 2026-08-27 after review and action-time confirmation; closed with the verified
+      fluxCore v2.1.0 release on 2026-08-30.
 
 > ### Summary
 >
@@ -2079,13 +2080,13 @@ S1 and S2 are deliberately deferred and must not enter through implementation dr
 | Q5 | Parameter-draw shape and identity | Documented `ParamContext` draws are wrapped inside another context; original identity/provenance are displaced and the parameter tutorial errors. Reproduced. | Complete in Core/Forecast and rendered tutorial path |
 | Q6 | Cohort run identity | Cohort index and run-list ids vary, but callback contexts and trajectory records all default to `run_1`; flattening also drops the join key. Reproduced. | Complete: batch id propagated and retained in output |
 | Q7 | RNG ownership | A seed stored on a loaded Engine overrides cohort and streaming seeds, collapsing nominally distinct replicates. Reproduced. | Complete: one outer execution owner and downstream regressions |
-| Q8 | Callback failure semantics | Condition, policy, and action-handler errors can become veto, no-action, or realized no-effect behavior through warnings. Reproduced. | Complete in Core; [issue #13 filed](https://github.com/jarrod-dalton/fluxCore/issues/13); fluxDesign handoff approved |
+| Q8 | Callback failure semantics | Condition, policy, and action-handler errors can become veto, no-action, or realized no-effect behavior through warnings. Reproduced. | Complete in Core; [issue #13 closed with v2.1.0](https://github.com/jarrod-dalton/fluxCore/issues/13); fluxDesign handoff approved |
 | Q9 | Tutorial verification | Tutorial 01 has one local capacity inconsistency plus the Q5 context defect; the renderer embeds both and exits successfully. | Complete: narrow repair and fatal, isolated five-tutorial render |
 | Q10 | Release-facing entry points | At review time, root release metadata was accurate at 2.0.0, but its blurb could be tighter; fluxCore README contracts were stale and local maintainer context was mistakenly tracked/linked. | Complete: focused README refresh, local-context cleanup, and v2.1 release alignment |
 | S1 | `compose_bundles()` v2 contract | The helper has broader callback and ownership drift than a safe issue-11 follow-up. | Deferred to a separate design |
 | S2 | Full proposal-to-realization lineage | Would require new ids/disposition fields and a larger trajectory contract. | Deferred |
-| S3 | Grouped decision points | A trigger-bearing group coordinates one policy plan across existing leaf decisions while actions realize independently. | Complete through S3d and coordinated ecosystem battery |
-| E1 | fluxDesign 2.1 contract-sync prompt | fluxDesign encodes Core contracts across skills, prompts, schemas, generators, examples, and audits; partial updates would generate stale models. | Draft complete; explicit review required before applying it |
+| S3 | Grouped decision points | A trigger-bearing group coordinates one policy plan across existing leaf decisions while actions realize independently. | Complete through S3d and coordinated ecosystem battery; [issue #12 closed with v2.1.0](https://github.com/jarrod-dalton/fluxCore/issues/12) |
+| E1 | fluxDesign 2.1 contract-sync prompt | fluxDesign encodes Core contracts across skills, prompts, schemas, generators, examples, and audits; partial updates would generate stale models. | Reviewed and approved for separate-environment handoff |
 
 ## Agreed staging
 
@@ -2191,3 +2192,4 @@ being resolved by silent scope expansion.
 | 2026-08-30 | Reworded fluxCore's DESCRIPTION in `d4f885c` from the quoted constructor-style `ModelBundle` term to ordinary “bundle of callback functions,” avoiding a likely CRAN spelling note without changing package meaning. The full fluxCore package check completed 0/0/0. |
 | 2026-08-30 | The maintainer reviewed and approved `PROMPT_fluxDesign_fluxCore_2_1_contract_sync.md` for use in the separate fluxDesign environment. No fluxDesign files were modified in this repository or release pass. |
 | 2026-08-30 | Finalized the version-aligned package candidates in fluxCore `b6f0b49`, fluxPrepare `2ccaa98`, fluxForecast `aa42732`, fluxValidation `57e375a`, fluxOrchestrate `8e1be89`, and fluxModelTemplate `2993662`. After installing those sources in dependency order, the exact-candidate ecosystem tiers passed with 1,402 assertions, one intentional warning, and eight documented skips; all five tutorials rendered fatally; and every subpackage plus the 2.1.0 root meta-package checked 0/0/0. Evidence: `tests_ecosystem/reports/ecosystem_20260830_093958_753.txt`. |
+| 2026-08-30 | Published coordinated `v2.1.0` GitHub releases for fluxCore, fluxPrepare, fluxForecast, fluxValidation, fluxOrchestrate, fluxModelTemplate, and the root flux repository from release commit `50df5e9`. The root release uses the reviewed human-facing announcement; all seven releases were verified non-draft and non-prerelease. Closed completed fluxCore issues [#11](https://github.com/jarrod-dalton/fluxCore/issues/11), [#12](https://github.com/jarrod-dalton/fluxCore/issues/12), and [#13](https://github.com/jarrod-dalton/fluxCore/issues/13) with release-specific resolution notes. |
