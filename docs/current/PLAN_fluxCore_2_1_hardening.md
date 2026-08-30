@@ -1,14 +1,14 @@
 # Plan — fluxCore 2.1 Contract Hardening and Completion
 
 **Status:** Approved Core implementation, public documentation, and localized downstream
-alignment are landed, while the coordinated ecosystem battery and release
-gate remain deferred until maintainer review.
+alignment are landed, and the coordinated source-stack ecosystem battery passed on
+2026-08-30. Release metadata and the separately reviewed fluxDesign handoff remain open.
 **Created:** 2026-08-26  
 **Target:** Complete the approved Core corrections, bounded grouped-decision extension,
 documentation, ecosystem handoff, and release verification for fluxCore 2.1.  
 **Historical parent:** [PLAN_fluxCore_issue11_action_lifecycle.md](./PLAN_fluxCore_issue11_action_lifecycle.md)  
 **Current fluxCore checkpoint:** `b32a6ff` (`Version: 2.1.0`)
-**Current super-repo base for this status update:** `d5b5a43`
+**Current super-repo base for this status update:** `2eb4cce`
 
 ---
 
@@ -1978,8 +1978,14 @@ understand the scientific behavior.
       fluxCore NEWS and reference documentation.
 - [x] Run focused grouped-decision tests, the complete pre-existing no-group suite, package
       check, and all five tutorials with fatal errors.
-- [ ] Run the coordinated source-stack ecosystem battery after maintainer review of the
-      overnight patches; this is intentionally deferred from the overnight goal.
+- [x] Run the coordinated source-stack ecosystem battery after maintainer review of the
+      overnight patches. On 2026-08-30, all six candidate sources were installed in
+      dependency order; ecosystem tiers 1–3 passed; the six package suites recorded 1,400
+      passing assertions, one intentional warning, and eight documented skips; all five
+      tutorials rendered fatally; and all six subpackages plus the root meta-package checked
+      with 0 errors, 0 warnings, and 0 notes. The check gate also found and corrected the
+      submodule `.git` build-note defect in fluxPrepare (`e4c2b19`) and fluxValidation
+      (`a265521`).
 
 **Explicitly outside S3:** S1 bundle composition changes; full S2 proposal-to-realization
 lineage; multiple actions per leaf; cancellation semantics; nested or dynamic groups;
@@ -2041,9 +2047,9 @@ of this discussion log. It should:
   and release-script defaults were not advanced to 2.1. In particular, the active release
   script still defaults to 2.0.0 and an older duplicate under `resources/scripts/release/`
   remains stale. These belong to the coordinated release pass, not an implementation patch.
-- The full source-stack ecosystem battery was deliberately not run under the overnight goal.
-  Individual changed-package suites/checks passed; install-order and coordinated cross-repo
-  verification remain the first release-gate task after review.
+- Resolved on 2026-08-30: the full source-stack ecosystem battery passed after installing
+  all candidate packages in dependency order. The three-tier harness, fatal tutorial render,
+  all package checks, and the root meta-package check are now complete.
 - The optional Q3–Q7 issue drafts remain unposted, and the E1 prompt has not been applied to
   fluxDesign. Neither should be treated as silently approved external work.
 
@@ -2069,7 +2075,7 @@ S1 and S2 are deliberately deferred and must not enter through implementation dr
 | Q10 | Release-facing entry points | Root release metadata is currently accurate at 2.0.0, but its blurb can be tighter; fluxCore README contracts are stale and local maintainer context is mistakenly tracked/linked. | Complete: focused README refresh and local-context cleanup |
 | S1 | `compose_bundles()` v2 contract | The helper has broader callback and ownership drift than a safe issue-11 follow-up. | Deferred to a separate design |
 | S2 | Full proposal-to-realization lineage | Would require new ids/disposition fields and a larger trajectory contract. | Deferred |
-| S3 | Grouped decision points | A trigger-bearing group coordinates one policy plan across existing leaf decisions while actions realize independently. | Complete through S3d; coordinated ecosystem battery pending review |
+| S3 | Grouped decision points | A trigger-bearing group coordinates one policy plan across existing leaf decisions while actions realize independently. | Complete through S3d and coordinated ecosystem battery |
 | E1 | fluxDesign 2.1 contract-sync prompt | fluxDesign encodes Core contracts across skills, prompts, schemas, generators, examples, and audits; partial updates would generate stale models. | Draft complete; explicit review required before applying it |
 
 ## Agreed staging
@@ -2171,3 +2177,4 @@ being resolved by silent scope expansion.
 | 2026-08-27 | Drafted `PROMPT_fluxDesign_fluxCore_2_1_contract_sync.md` from the final Core diff, NEWS, Tutorial 03, regression evidence, and a verified fluxDesign surface inventory. The prompt makes model-spec versioning/migration an explicit review gate, covers skills/prompts/schema/app/codegen/audit fixtures, and excludes deferred S1/S2 behavior. Applying it to fluxDesign remains subject to explicit review. |
 | 2026-08-27 | Corrected fluxForecast's downstream Q8 evidence in `1dfee1e`: its regression now throws from a real decision condition through `forecast()` and `run_cohort()` rather than from a transition, while production warning suppression remains unchanged. All 74 tests passed and repository-only docs were excluded from the package tarball, restoring package check to 0/0/0. |
 | 2026-08-27 | Aligned fluxModelTemplate's direct callback fixtures with real typed contexts in `d47176e`; the stronger tests exposed no runtime defect. Added the missing documentation for its three exported template entry points and excluded the submodule marker from source builds. All 31 tests passed and package check improved from one warning/one note to 0/0/0. |
+| 2026-08-30 | Completed the coordinated source-stack release battery after installing Core, Prepare, Forecast, Validation, Orchestrate, and ModelTemplate from their candidate sources. Ecosystem tiers 1–3 passed; the six native suites recorded 1,400 passes, one intentional warning, and eight documented skips; all five tutorials rendered under fatal-error handling; and all six packages plus the root meta-package checked 0/0/0. The check gate exposed submodule `.git` build notes in Prepare and Validation, resolved in `e4c2b19` and `a265521` respectively. |
