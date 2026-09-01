@@ -2,7 +2,7 @@ Package: flux
 Type: Package
 Title: Event-Based Simulation of Multivariate Systems in Irregular Time
 Version: 2.1.0
-Authors@R: person(given = "Jarrod", family = "Dalton", role = c("aut", "cre"), email = "jarrod.dalton@gmail.com")
+Authors@R: person(given = "Jarrod", family = "Dalton", role = c("aut", "cre"), email = "daltonj@ccf.org")
 Description: Convenience meta-package for installing and loading the core flux
     ecosystem packages for simulation modeling in irregular time.
 License: LGPL-3
